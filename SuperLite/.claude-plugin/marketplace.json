@@ -1,0 +1,18 @@
+{
+  "name": "superlite",
+  "description": "Local marketplace for SuperLite — Ouli's lightweight skill combo",
+  "owner": {
+    "name": "Ouli"
+  },
+  "plugins": [
+    {
+      "name": "superlite",
+      "description": "Ouli's lightweight skill pack for daily work and simple projects - core coding disciplines (TDD, debugging, review, verification) plus general-purpose writing, research, grilling and handoff",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Ouli"
+      }
+    }
+  ]
+}

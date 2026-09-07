@@ -1,0 +1,6 @@
+{
+  "name": "superwork",
+  "version": "1.5.0",
+  "description": "Ouli's curated skill combo (superpowers + matt-skills): grilling, TDD, debugging, verification, code review and more",
+  "skills": "./skills"
+}

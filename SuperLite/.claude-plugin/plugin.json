@@ -1,0 +1,29 @@
+{
+  "name": "superlite",
+  "version": "1.0.0",
+  "description": "Ouli's lightweight skill pack for daily work and simple projects - core coding disciplines (TDD, debugging, review, verification) plus general-purpose writing, research, grilling and handoff",
+  "author": {
+    "name": "Ouli"
+  },
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "lightweight",
+    "tdd",
+    "debugging",
+    "verification",
+    "writing",
+    "research"
+  ],
+  "skills": [
+    "./skills/superlite",
+    "./skills/code-review",
+    "./skills/diagnosing-bugs",
+    "./skills/grilling",
+    "./skills/handoff",
+    "./skills/research",
+    "./skills/tdd",
+    "./skills/verification-before-completion",
+    "./skills/writing"
+  ]
+}

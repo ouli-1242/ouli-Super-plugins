@@ -1,0 +1,36 @@
+{
+  "name": "superwork",
+  "version": "1.5.0",
+  "description": "Ouli's curated skill combo (superpowers + matt-skills): grilling, TDD, debugging, verification, code review and more",
+  "author": {
+    "name": "Ouli"
+  },
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "tdd",
+    "debugging",
+    "code-review",
+    "grilling",
+    "domain-modeling",
+    "verification"
+  ],
+  "skills": [
+    "./skills/superwork",
+    "./skills/brainstorming",
+    "./skills/code-review",
+    "./skills/diagnosing-bugs",
+    "./skills/domain-modeling",
+    "./skills/executing-plans",
+    "./skills/finishing-a-development-branch",
+    "./skills/grilling",
+    "./skills/handoff",
+    "./skills/receiving-code-review",
+    "./skills/research",
+    "./skills/resolving-merge-conflicts",
+    "./skills/tdd",
+    "./skills/verification-before-completion",
+    "./skills/writing-plans",
+    "./skills/writing-skills"
+  ]
+}
