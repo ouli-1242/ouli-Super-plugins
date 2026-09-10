@@ -179,3 +179,46 @@ def test_cache_stats_counts_ttl_expired_as_miss():
     stats = cache.stats()
     assert stats.hits == 0
     assert stats.misses == 1
+
+
+# ---------------------------------------------------------------------------
+# variant：后端 + 生成参数指纹
+# 回归：历史上 key 只有 (图片, 提示词, 模型)，切换 VISION_PROVIDER /
+# OCR_BACKEND 或改动生成参数后会命中旧后端的旧结果。
+# ---------------------------------------------------------------------------
+
+
+def test_cache_different_variant_does_not_hit():
+    """variant 不同必须视为未命中。"""
+    cache = VisionCache(max_size=10, ttl=3600)
+    cache.set("h", "p", "m", "openai 的结果", variant="openai|4096||")
+
+    assert cache.get("h", "p", "m", variant="anthropic|4096||") is None
+    assert cache.get("h", "p", "m", variant="openai|4096||") == "openai 的结果"
+
+
+def test_cache_same_variant_hits():
+    """variant 一致时正常命中。"""
+    cache = VisionCache(max_size=10, ttl=3600)
+    cache.set("h", "p", "m", "text", variant="openai|8192|low|{\"type\": \"json_object\"}")
+
+    assert (
+        cache.get("h", "p", "m", variant="openai|8192|low|{\"type\": \"json_object\"}")
+        == "text"
+    )
+
+
+def test_cache_variant_defaults_to_empty():
+    """不传 variant 时行为与历史一致（等价于空指纹）。"""
+    cache = VisionCache(max_size=10, ttl=3600)
+    cache.set("h", "p", "m", "text")
+
+    assert cache.get("h", "p", "m") == "text"
+
+
+def test_cache_max_tokens_difference_is_isolated():
+    """仅 max_tokens 不同也不得复用结果。"""
+    cache = VisionCache(max_size=10, ttl=3600)
+    cache.set("h", "p", "m", "短输出", variant="openai|1024||")
+
+    assert cache.get("h", "p", "m", variant="openai|8192||") is None

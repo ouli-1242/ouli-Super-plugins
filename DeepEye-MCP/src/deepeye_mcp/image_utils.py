@@ -22,8 +22,12 @@ import httpx
 from PIL import Image, ImageOps
 
 from deepeye_mcp.config import settings
+from deepeye_mcp.errors import ImageSourceError
 
 _DEFAULT_MIME = "image/png"
+
+# 流式下载分块大小：边读边累计，超限立刻中断，避免把超大响应读进内存
+_DOWNLOAD_CHUNK_SIZE = 64 * 1024
 
 
 def _is_public_ip(ip: str) -> bool:
@@ -52,24 +56,24 @@ def _ensure_public_target(url: str) -> str:
     ``settings.allow_private_urls=True`` 时跳过校验（仅本地调试）。
 
     Raises:
-        ValueError: URL 无法解析或解析到非公网地址时抛出。
+        ImageSourceError: URL 无法解析或解析到非公网地址时抛出。
     """
     parsed = urlparse(url)
     hostname = parsed.hostname
     if not hostname:
-        raise ValueError("URL 缺少主机名")
+        raise ImageSourceError("URL 缺少主机名")
     if settings.allow_private_urls:
         return hostname
 
     try:
         infos = socket.getaddrinfo(hostname, None)
     except socket.gaierror as exc:
-        raise ValueError(f"无法解析主机: {hostname}") from exc
+        raise ImageSourceError(f"无法解析主机: {hostname}") from exc
 
     for info in infos:
         ip = info[4][0]
         if not _is_public_ip(ip):
-            raise ValueError(
+            raise ImageSourceError(
                 f"拒绝访问非公网地址（SSRF 防护）: {hostname} ({ip})"
             )
     return hostname
@@ -86,10 +90,18 @@ def load_image_as_base64(path: str) -> tuple[str, str]:
 
     Raises:
         FileNotFoundError: 文件不存在时抛出。
+        ImageSourceError: 文件超过 ``settings.max_image_bytes`` 时抛出。
     """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"图像文件不存在: {path}")
+
+    # 先看文件大小再读：避免把超大文件整块读进内存后才发现超限
+    size = p.stat().st_size
+    if size > settings.max_image_bytes:
+        raise ImageSourceError(
+            f"图片超过大小上限: {size} > {settings.max_image_bytes} bytes (本地文件)"
+        )
 
     data = p.read_bytes()
     b64_data = base64.b64encode(data).decode("ascii")
@@ -111,38 +123,54 @@ async def load_image_from_url_as_base64(url: str) -> tuple[str, str]:
     Returns:
         ``(base64_data, mime_type)`` 元组。MIME 从响应 ``Content-Type``
         推断（取 ``;`` 之前部分），无法推断时默认 ``image/png``。
+
+    Raises:
+        ImageSourceError: 重定向异常、SSRF 拦截、超过大小上限、或
+            响应 ``Content-Type`` 不是 ``image/*``。
+        httpx.HTTPStatusError: 目标返回非 2xx 状态码。
+
+    Note:
+        响应体**流式**读取并边读边计，超限立即中断——避免把超大响应
+        整块读进内存（历史实现先 ``response.content`` 再比大小）。
     """
     _MAX_REDIRECTS = 5
     current = url
+    chunks: list[bytes] = []
+    mime_type = ""
     async with httpx.AsyncClient(
         follow_redirects=False, timeout=settings.request_timeout
     ) as client:
         for _ in range(_MAX_REDIRECTS + 1):
             _ensure_public_target(current)
-            response = await client.get(current)
-            if response.status_code in (301, 302, 303, 307, 308):
-                location = response.headers.get("location", "")
-                if not location:
-                    raise ValueError(f"重定向缺少 Location 头: {current}")
-                # 解析相对重定向
-                current = str(httpx.URL(current).join(location))
-                continue
-            response.raise_for_status()
+            async with client.stream("GET", current) as response:
+                if response.status_code in (301, 302, 303, 307, 308):
+                    location = response.headers.get("location", "")
+                    if not location:
+                        raise ImageSourceError(f"重定向缺少 Location 头: {current}")
+                    # 解析相对重定向；下一跳会重新做公网校验
+                    current = str(httpx.URL(current).join(location))
+                    continue
+                response.raise_for_status()
+                _ensure_image_content_type(response, current)
+
+                content_type = response.headers.get("Content-Type", "")
+                mime_type = content_type.split(";")[0].strip() if content_type else ""
+                total = 0
+                async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_SIZE):
+                    total += len(chunk)
+                    if total > settings.max_image_bytes:
+                        raise ImageSourceError(
+                            f"图片超过大小上限: > {settings.max_image_bytes} bytes "
+                            f"(下载中断, {current})"
+                        )
+                    chunks.append(chunk)
             break
         else:
-            raise ValueError(f"重定向次数超过上限: {_MAX_REDIRECTS}")
+            raise ImageSourceError(f"重定向次数超过上限: {_MAX_REDIRECTS}")
 
-    data = response.content
-    if len(data) > settings.max_image_bytes:
-        raise ValueError(
-            f"图片超过大小上限: {len(data)} > {settings.max_image_bytes} bytes"
-        )
-    b64_data = base64.b64encode(data).decode("ascii")
-    content_type = response.headers.get("Content-Type", "")
-    mime_type = content_type.split(";")[0].strip() if content_type else ""
     if not mime_type:
         mime_type = _DEFAULT_MIME
-    return b64_data, mime_type
+    return base64.b64encode(b"".join(chunks)).decode("ascii"), mime_type
 
 
 def _parse_data_uri(image_source: str) -> tuple[str, str]:
@@ -165,16 +193,31 @@ def _parse_data_uri(image_source: str) -> tuple[str, str]:
         elif meta:
             mime_type = meta.strip() or _DEFAULT_MIME
     if not b64_data:
-        raise ValueError("data URI 不含 base64 数据")
+        raise ImageSourceError("data URI 不含 base64 数据")
     return b64_data, mime_type
 
 
 def _check_size(data: bytes, label: str) -> None:
-    """校验图片字节数是否超过 ``settings.max_image_bytes``，超限抛 ValueError。"""
+    """校验图片字节数是否超过 ``settings.max_image_bytes``，超限抛 ImageSourceError。"""
     if len(data) > settings.max_image_bytes:
-        raise ValueError(
+        raise ImageSourceError(
             f"图片超过大小上限: {len(data)} > {settings.max_image_bytes} bytes ({label})"
         )
+
+
+def _ensure_image_content_type(response: httpx.Response, url: str) -> None:
+    """拒绝 ``Content-Type`` 明显不是图片的响应。
+
+    服务器常以 ``200 OK`` 返回 HTML 错误页（``text/html``）。若不过滤，
+    它会被 base64 编码后当作图片送进视觉模型，产生无意义的调用与费用。
+    未带 ``Content-Type`` 的响应不做判断（部分静态服务器会省略该头）。
+    """
+    content_type = response.headers.get("Content-Type", "")
+    if not content_type:
+        return
+    mime = content_type.split(";")[0].strip().lower()
+    if mime and not mime.startswith("image/"):
+        raise ImageSourceError(f"URL 返回的不是图片（Content-Type: {mime}）: {url}")
 
 
 async def parse_image_source(image_source: str) -> tuple[str, str]:
@@ -185,8 +228,9 @@ async def parse_image_source(image_source: str) -> tuple[str, str]:
     - ``http://`` / ``https://`` 开头 → 异步下载
     - 其他 → 视为本地路径
 
-    三种来源均受 ``settings.max_image_bytes`` 大小上限约束（本地路径与
-    data URI 在读取/解码后校验，与 URL 下载路径行为一致）。
+    三种来源均受 ``settings.max_image_bytes`` 大小上限约束：本地路径在读取
+    前用 ``stat`` 校验、URL 边下载边限幅、data URI 解码后校验，均不会把
+    超限内容整块留在内存里。
 
     Args:
         image_source: 图像来源字符串。
@@ -205,14 +249,9 @@ async def parse_image_source(image_source: str) -> tuple[str, str]:
         return b64_data, mime_type
     if image_source.startswith(("http://", "https://")):
         return await load_image_from_url_as_base64(image_source)
-    # 本地路径：同步读取后再校验大小（与 URL/data URI 行为一致）
-    b64_data, mime_type = load_image_as_base64(image_source)
-    try:
-        raw = base64.b64decode(b64_data, validate=True)
-    except Exception:
-        return b64_data, mime_type
-    _check_size(raw, "本地文件")
-    return b64_data, mime_type
+    # 本地路径：大小校验在读取前用 stat 完成（见 load_image_as_base64），
+    # 这里不再为「量尺寸」而把整个 base64 二次解码
+    return load_image_as_base64(image_source)
 
 
 def preprocess_image(b64: str, mime: str) -> tuple[str, str]:

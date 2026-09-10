@@ -14,6 +14,7 @@ from __future__ import annotations
 import httpx
 
 from deepeye_mcp.config import settings
+from deepeye_mcp.vision._retry import post_with_retry
 from deepeye_mcp.vision.base import VisionAdapter
 
 _DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -71,10 +72,9 @@ class GeminiInteractionsAdapter(VisionAdapter):
     ) -> None:
         self.model = model or settings.gemini_model
         self.api_key = api_key if api_key is not None else settings.gemini_api_key
+        base = base_url if base_url is not None else settings.gemini_base_url
         self.base_url = (
-            base_url.strip()
-            if base_url and base_url.strip()
-            else _DEFAULT_BASE_URL
+            base.strip() if base and base.strip() else _DEFAULT_BASE_URL
         )
 
     def _build_payload(
@@ -133,20 +133,9 @@ class GeminiInteractionsAdapter(VisionAdapter):
         headers = {"Content-Type": "application/json"}
 
         client = _get_client()
-        last_exc: Exception | None = None
-        for attempt in range(settings.max_retries + 1):
-            try:
-                response = await client.post(url, params=params, json=payload, headers=headers)
-                response.raise_for_status()
-                break
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                last_exc = exc
-                if attempt < settings.max_retries:
-                    continue
-                raise
-        else:
-            if last_exc:
-                raise last_exc
+        response = await post_with_retry(
+            client, url, json=payload, headers=headers, params=params
+        )
 
         data = response.json()
         return _extract_steps_text(data.get("steps"))
@@ -163,7 +152,8 @@ class GeminiInteractionsAdapter(VisionAdapter):
         headers = {"Content-Type": "application/json"}
 
         client = _get_client()
-        response = await client.post(url, params=params, json=payload, headers=headers)
-        response.raise_for_status()
+        response = await post_with_retry(
+            client, url, json=payload, headers=headers, params=params
+        )
         data = response.json()
         return _extract_steps_text(data.get("steps"))

@@ -34,9 +34,13 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-luna"
     openai_base_url: str = ""
 
-    # ---------- Gemini 后端（预留） ----------
+    # ---------- Gemini 后端 ----------
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-pro"
+    # 接口地址；留空用官方端点。自建代理 / 兼容网关时填这里
+    # （历史缺陷：.env.example 提到过该变量但配置类没有对应字段，
+    #  pydantic 的 extra="ignore" 会静默丢弃，导致代理配置不生效）
+    gemini_base_url: str = ""
 
     # ---------- Anthropic 后端 ----------
     anthropic_api_key: str = ""
@@ -69,8 +73,11 @@ class Settings(BaseSettings):
     # ---------- 网络请求 ----------
     # 视觉后端 HTTP 请求超时（秒）
     request_timeout: float = 120.0
-    # 失败重试次数（仅对网络/超时错误重试，不对 4xx 重试）
+    # 失败重试次数（对网络/超时错误与 429/5xx 重试；400/401/403/404 不重试）
     max_retries: int = 3
+    # 重试退避基数（秒），第 n 次重试等待 retry_backoff * 2**(n-1)；
+    # 设为 0 可关闭退避（测试用）
+    retry_backoff: float = 0.5
     # 视觉模型返回的最大 token 数（推理模型需更大预算，否则 content 被截断为空）
     max_tokens: int = 4096
     # 推理深度：low / medium / high；留空则不发送该参数（部分后端不支持）

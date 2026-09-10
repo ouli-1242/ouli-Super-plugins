@@ -68,36 +68,40 @@ async def test_call_tool_failure_sets_is_error():
 
 async def test_redirect_to_internal_rejected():
     """公网 URL 重定向到内网时应被拒绝（每跳复检）。"""
-    # 第一跳: 初始 URL -> 200 且 Location 指向内网（301）
     seen_urls = []
 
-    async def fake_get(url, *a, **k):
-        seen_urls.append(url)
+    class _Stream:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self._resp
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+    def _redirect_response():
         fr = MagicMock()
-        fr.content = b"x"
-        fr.headers = {"Content-Type": "image/png"}
-        fr.status_code = 200
-        fr.raise_for_status = MagicMock()
+        fr.status_code = 301
+        # httpx.Headers 不区分大小写；用真实 Headers 构造
+        fr.headers = httpx.Headers({"Location": "http://127.0.0.1:8080/internal.png"})
         return fr
 
+    def fake_stream(method, url, *a, **k):
+        seen_urls.append(url)
+        return _Stream(_redirect_response())
+
     fc = AsyncMock()
-    fc.get = fake_get
+    fc.stream = MagicMock(side_effect=fake_stream)
     fc.__aenter__.return_value = fc
     fc.__aexit__.return_value = None
 
-    # 第一次 get 返回 301 指向内网；手动逻辑应校验 Location 目标后拒绝
+    # 第一次校验通过、第二次（重定向目标）抛错；手动逻辑应拒绝
     with patch("deepeye_mcp.image_utils._ensure_public_target") as m_ensure:
-        m_ensure.side_effect = [None, ValueError("拒绝访问非公网地址（SSRF 防护）: 127.0.0.1 (127.0.0.1)")]
-
-        async def fake_get_redirect(url, *a, **k):
-            seen_urls.append(url)
-            fr = MagicMock()
-            fr.status_code = 301
-            # httpx.Headers 不区分大小写；用真实 Headers 构造
-            fr.headers = httpx.Headers({"Location": "http://127.0.0.1:8080/internal.png"})
-            return fr
-
-        fc.get = fake_get_redirect
+        m_ensure.side_effect = [
+            None,
+            ValueError("拒绝访问非公网地址（SSRF 防护）: 127.0.0.1 (127.0.0.1)"),
+        ]
         with patch("deepeye_mcp.image_utils.httpx.AsyncClient", return_value=fc):
             with pytest.raises(ValueError, match="SSRF"):
                 await load_image_from_url_as_base64("https://example.com/x.png")
@@ -105,6 +109,7 @@ async def test_redirect_to_internal_rejected():
     # 校验函数对初始 URL 和重定向目标都被调用
     ensure_calls = m_ensure.call_count
     assert ensure_calls >= 2, f"应逐跳校验（初始+重定向目标），实际 {ensure_calls} 次"
+    assert seen_urls == ["https://example.com/x.png"], "重定向目标不应被实际请求"
 
 
 # ---------------------------------------------------------------------------

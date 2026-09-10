@@ -83,10 +83,13 @@ async def _run_vision(
     # 用处理后的 b64 计算哈希，作为缓存 key 的一部分
     image_hash = hashlib.sha256(b64_data.encode()).hexdigest()
     effective_model = model if model is not None else ""
+    # 缓存指纹必须含「实际后端 + 全部影响输出的生成参数」，否则切换
+    # VISION_PROVIDER / OCR_BACKEND 或改动生成参数后会命中旧后端的旧结果
+    cache_variant = _cache_variant(provider, max_tokens, reasoning_effort, response_format)
 
     # 开启缓存时先查缓存，命中则直接返回
     if settings.cache_enabled and use_cache:
-        cached = vision_cache.get(image_hash, prompt, effective_model)
+        cached = vision_cache.get(image_hash, prompt, effective_model, cache_variant)
         if cached is not None:
             return cached
 
@@ -102,9 +105,35 @@ async def _run_vision(
 
     # 写入缓存供下次复用；空结果不缓存，避免污染
     if settings.cache_enabled and use_cache and text:
-        vision_cache.set(image_hash, prompt, effective_model, text)
+        vision_cache.set(image_hash, prompt, effective_model, text, cache_variant)
 
     return text
+
+
+def _cache_variant(
+    provider: str | None,
+    max_tokens: int | None,
+    reasoning_effort: str | None,
+    response_format: dict | None,
+) -> str:
+    """拼出缓存参数指纹：实际后端 + 影响输出的生成参数。
+
+    这些参数任何一项变化都会改变模型输出，因此必须参与缓存 key。
+    ``response_format`` 是 dict，用 ``sort_keys`` 序列化以保证顺序稳定。
+    """
+    effective_provider = (provider or settings.vision_provider).lower().strip()
+    fmt = (
+        json.dumps(response_format, sort_keys=True, ensure_ascii=False)
+        if response_format
+        else ""
+    )
+    effective_max_tokens = (
+        max_tokens if max_tokens is not None else settings.max_tokens
+    )
+    return (
+        f"{effective_provider}|{effective_max_tokens}"
+        f"|{reasoning_effort or settings.reasoning_effort}|{fmt}"
+    )
 
 
 async def describe_image(
@@ -152,7 +181,11 @@ async def extract_text(
         text = await _run_vision(image_source, prompt, provider=settings.ocr_backend)
         return [TextContent(type="text", text=text)]
     except Exception as exc:
-        raise VisionError(f"OCR 失败：{classify_error(exc, settings.ocr_backend)}") from exc
+        # classify_error 返回 (category, message)，必须取 [1]；否则用户会看到
+        # "OCR 失败：('backend', '...')" 这种元组字面量（历史缺陷）
+        raise VisionError(
+            f"OCR 失败：{classify_error(exc, settings.ocr_backend)[1]}"
+        ) from exc
 
 
 async def ask_about_image(

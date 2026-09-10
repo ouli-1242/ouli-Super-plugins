@@ -16,6 +16,7 @@ from __future__ import annotations
 import httpx
 
 from deepeye_mcp.config import settings
+from deepeye_mcp.vision._retry import post_with_retry
 from deepeye_mcp.vision.base import VisionAdapter
 
 # 复用单个 AsyncClient
@@ -132,20 +133,7 @@ class ResponsesVisionAdapter(VisionAdapter):
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         client = _get_client()
-        last_exc: Exception | None = None
-        for attempt in range(settings.max_retries + 1):
-            try:
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                break
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                last_exc = exc
-                if attempt < settings.max_retries:
-                    continue
-                raise
-        else:
-            if last_exc:
-                raise last_exc
+        response = await post_with_retry(client, url, json=payload, headers=headers)
 
         data = response.json()
         return _extract_output_text(data.get("output"))
@@ -165,7 +153,6 @@ class ResponsesVisionAdapter(VisionAdapter):
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         client = _get_client()
-        response = await client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
+        response = await post_with_retry(client, url, json=payload, headers=headers)
         data = response.json()
         return _extract_output_text(data.get("output"))

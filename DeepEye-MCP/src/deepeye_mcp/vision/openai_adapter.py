@@ -9,6 +9,7 @@ from __future__ import annotations
 import httpx
 
 from deepeye_mcp.config import settings
+from deepeye_mcp.vision._retry import post_with_retry
 from deepeye_mcp.vision.base import VisionAdapter
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -108,27 +109,18 @@ class OpenAIVisionAdapter(VisionAdapter):
 
         client = _get_client()
         timeout = settings.request_timeout
-        last_exc: Exception | None = None
-        for attempt in range(settings.max_retries + 1):
-            try:
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                break
-            except httpx.TimeoutException as exc:
-                last_exc = exc
-                if attempt < settings.max_retries:
-                    continue
-                raise RuntimeError(
-                    f"视觉模型请求超时（{timeout}s），已重试 {attempt} 次。"
-                    f"建议：1) 缩短 prompt；2) 增大 REQUEST_TIMEOUT；3) 换更快的 API 端点。"
-                ) from exc
-            except httpx.TransportError as exc:
-                last_exc = exc
-                if attempt < settings.max_retries:
-                    continue
-                raise RuntimeError(
-                    f"网络传输错误：{exc}。建议检查网络或 OPENAI_BASE_URL 配置。"
-                ) from exc
+        # 重试交给共享助手；这里只把「已耗尽」的失败翻译成带建议的中文文案
+        try:
+            response = await post_with_retry(client, url, json=payload, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"视觉模型请求超时（{timeout}s），已重试 {settings.max_retries} 次。"
+                f"建议：1) 缩短 prompt；2) 增大 REQUEST_TIMEOUT；3) 换更快的 API 端点。"
+            ) from exc
+        except httpx.TransportError as exc:
+            raise RuntimeError(
+                f"网络传输错误：{exc}。建议检查网络或 OPENAI_BASE_URL 配置。"
+            ) from exc
 
         data = response.json()
         message = _extract_message(data)
@@ -139,10 +131,8 @@ class OpenAIVisionAdapter(VisionAdapter):
         # content 为空：推理模型偶发把答案放到 reasoning_content，先重试拿到干净答案
         for _ in range(_EMPTY_CONTENT_RETRIES):
             try:
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                last_exc = exc
+                response = await post_with_retry(client, url, json=payload, headers=headers)
+            except (httpx.TimeoutException, httpx.TransportError):
                 break
             data = response.json()
             message = _extract_message(data)
@@ -168,8 +158,7 @@ class OpenAIVisionAdapter(VisionAdapter):
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         client = _get_client()
-        response = await client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
+        response = await post_with_retry(client, url, json=payload, headers=headers)
         data = response.json()
         message = _extract_message(data)
         content = (message.get("content") or "").strip() if message else ""

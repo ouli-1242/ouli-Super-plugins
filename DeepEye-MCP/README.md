@@ -395,14 +395,14 @@ claude mcp add deepeye --env VISION_PROVIDER=openai \
 | `OPENAI_API_KEY` | OpenAI 兼容厂商的 Key | 空（部分厂商可无 key） |
 | `OPENAI_MODEL` | 视觉模型名 | `gpt-5.6-luna` |
 | `OPENAI_BASE_URL` | 厂商 OpenAI 兼容端点 | OpenAI 官方 |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | Gemini 后端 | 仅 gemini / gemini-interactions 生效 |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_BASE_URL` | Gemini 后端 | 仅 gemini / gemini-interactions 生效 |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Claude 后端 | 仅 anthropic 生效 |
 | `RESPONSES_API_KEY` / `RESPONSES_MODEL` | OpenAI Responses 后端 | 仅 responses 生效 |
 | `OCR_BACKEND` | OCR 单独用哪个后端 | 同 `VISION_PROVIDER` |
 | `REASONING_EFFORT` | 推理深度 `low`/`medium`/`high` | 空（不发送） |
 
 > 若 `deepeye` 不在 PATH，把 `command` 换成完整路径：
-> `"command": "D:/Program Files/Python314/Scripts/deepeye.exe"`。
+> `"command": "<你的 Python 安装目录>/Scripts/deepeye.exe"`（Windows 示例；macOS / Linux 为 `<...>/bin/deepeye`）。
 
 保存后重启 Claude Code，`/mcp` 面板中应显示 `deepeye` 已连接。若显示 failed，运行 `deepeye` 查看报错。
 

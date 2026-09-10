@@ -37,6 +37,85 @@ def _build_mock_adapter(return_value: str = "mocked description") -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
+# 回归：错误文案不得泄漏 (category, message) 元组字面量
+# ---------------------------------------------------------------------------
+
+
+@patch("deepeye_mcp.tools._run_vision")
+async def test_extract_text_error_message_is_plain_string(mock_run_vision):
+    """classify_error 返回元组，文案必须取 [1]，不能把元组直接格式化。"""
+    mock_run_vision.side_effect = FileNotFoundError("图像文件不存在: /tmp/nope.png")
+
+    with pytest.raises(VisionError) as excinfo:
+        await extract_text(image_source=_DATA_URI)
+
+    message = str(excinfo.value)
+    assert "图片文件不存在" in message
+    assert "('" not in message, f"文案泄漏了元组字面量: {message}"
+    assert "', '" not in message, f"文案泄漏了元组字面量: {message}"
+
+
+@patch("deepeye_mcp.tools._run_vision")
+async def test_describe_image_error_message_is_plain_string(mock_run_vision):
+    mock_run_vision.side_effect = FileNotFoundError("图像文件不存在: /tmp/nope.png")
+
+    with pytest.raises(VisionError) as excinfo:
+        await describe_image(image_source=_DATA_URI)
+
+    assert "('" not in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# 回归：缓存必须按「后端 + 生成参数」隔离
+# ---------------------------------------------------------------------------
+
+
+@patch("deepeye_mcp.tools.create_vision_adapter")
+async def test_cache_reused_for_same_provider(mock_factory, monkeypatch):
+    """同一后端 + 同一参数：第二次应命中缓存，后端只被调用一次。"""
+    from deepeye_mcp.tools import _run_vision
+
+    monkeypatch.setattr(settings, "cache_enabled", True)
+    adapter = _build_mock_adapter("结果")
+    mock_factory.return_value = adapter
+
+    await _run_vision(_DATA_URI, "同一个提示词", provider="openai")
+    await _run_vision(_DATA_URI, "同一个提示词", provider="openai")
+
+    assert adapter.describe.await_count == 1
+
+
+@patch("deepeye_mcp.tools.create_vision_adapter")
+async def test_cache_isolated_per_provider(mock_factory, monkeypatch):
+    """切换 provider 必须重新调用后端，不得返回旧后端的结果。"""
+    from deepeye_mcp.tools import _run_vision
+
+    monkeypatch.setattr(settings, "cache_enabled", True)
+    adapter = _build_mock_adapter("结果")
+    mock_factory.return_value = adapter
+
+    await _run_vision(_DATA_URI, "同一个提示词", provider="openai")
+    await _run_vision(_DATA_URI, "同一个提示词", provider="gemini")
+
+    assert adapter.describe.await_count == 2
+
+
+@patch("deepeye_mcp.tools.create_vision_adapter")
+async def test_cache_isolated_per_max_tokens(mock_factory, monkeypatch):
+    """仅 max_tokens 变化也必须重新调用后端。"""
+    from deepeye_mcp.tools import _run_vision
+
+    monkeypatch.setattr(settings, "cache_enabled", True)
+    adapter = _build_mock_adapter("结果")
+    mock_factory.return_value = adapter
+
+    await _run_vision(_DATA_URI, "p", max_tokens=1024)
+    await _run_vision(_DATA_URI, "p", max_tokens=8192)
+
+    assert adapter.describe.await_count == 2
+
+
+# ---------------------------------------------------------------------------
 # describe_image
 # ---------------------------------------------------------------------------
 

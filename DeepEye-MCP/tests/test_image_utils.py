@@ -108,15 +108,55 @@ def test_parse_data_uri_empty_data_raises():
 _PUBLIC_IP = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
 
-def _make_fake_client(content: bytes, content_type: str) -> AsyncMock:
-    """构造一个 fake ``httpx.AsyncClient``，返回指定响应内容。"""
+class _FakeStream:
+    """``client.stream(...)`` 的异步上下文管理器替身。"""
+
+    def __init__(self, response: MagicMock) -> None:
+        self._response = response
+
+    async def __aenter__(self) -> MagicMock:
+        return self._response
+
+    async def __aexit__(self, *exc_info) -> bool:
+        return False
+
+
+def _make_fake_response(
+    content: bytes,
+    content_type: str = "image/png",
+    status_code: int = 200,
+) -> MagicMock:
+    """构造 fake 响应，支持流式下载路径（headers / aiter_bytes）。"""
     fake_response = MagicMock()
-    fake_response.content = content
-    fake_response.headers = {"Content-Type": content_type} if content_type else {}
+    fake_response.status_code = status_code
+    fake_response.headers = (
+        {"Content-Type": content_type} if content_type else {}
+    )
     fake_response.raise_for_status = MagicMock()
 
+    async def _aiter_bytes(chunk_size: int = 65536):
+        for i in range(0, len(content), chunk_size):
+            yield content[i : i + chunk_size]
+
+    fake_response.aiter_bytes = _aiter_bytes
+    return fake_response
+
+
+def _make_fake_client(
+    content: bytes = b"",
+    content_type: str = "image/png",
+    *,
+    response: MagicMock | None = None,
+) -> AsyncMock:
+    """构造 fake ``httpx.AsyncClient``。
+
+    下载路径现在走 ``client.stream("GET", ...)``（流式 + 边读边限幅），
+    因此替身需要提供 ``stream`` 而非 ``get``。
+    """
+    if response is None:
+        response = _make_fake_response(content, content_type)
     fake_client = AsyncMock()
-    fake_client.get = AsyncMock(return_value=fake_response)
+    fake_client.stream = MagicMock(side_effect=lambda *a, **k: _FakeStream(response))
     fake_client.__aenter__.return_value = fake_client
     fake_client.__aexit__.return_value = None
     return fake_client
@@ -136,8 +176,8 @@ async def test_load_image_from_url_as_base64(mock_client_cls, mock_getaddrinfo):
 
     assert b64_data == base64.b64encode(raw).decode("ascii")
     assert mime_type == "image/jpeg"
-    mock_client_cls.return_value.get.assert_awaited_once_with(
-        "https://example.com/cat.jpg"
+    mock_client_cls.return_value.stream.assert_called_once_with(
+        "GET", "https://example.com/cat.jpg"
     )
 
 
@@ -164,17 +204,13 @@ async def test_load_image_from_url_as_base64_missing_content_type(mock_client_cl
 async def test_load_image_from_url_as_base64_raises_on_error_status(mock_client_cls, mock_getaddrinfo):
     import httpx
 
-    fake_response = MagicMock()
+    fake_response = _make_fake_response(b"", "image/png", status_code=500)
     fake_response.raise_for_status.side_effect = httpx.HTTPStatusError(
         "Internal Server Error",
         request=MagicMock(),
         response=fake_response,
     )
-    fake_client = AsyncMock()
-    fake_client.get = AsyncMock(return_value=fake_response)
-    fake_client.__aenter__.return_value = fake_client
-    fake_client.__aexit__.return_value = None
-    mock_client_cls.return_value = fake_client
+    mock_client_cls.return_value = _make_fake_client(response=fake_response)
 
     with pytest.raises(httpx.HTTPStatusError):
         await load_image_from_url_as_base64("https://example.com/500.png")
@@ -236,6 +272,39 @@ async def test_url_too_large_rejected(monkeypatch):
             mock_client_cls.return_value = _make_fake_client(b"x" * 100, "image/png")
             with pytest.raises(ValueError, match="大小上限"):
                 await load_image_from_url_as_base64("https://example.com/big.png")
+
+
+@patch(
+    "deepeye_mcp.image_utils.socket.getaddrinfo", return_value=_PUBLIC_IP
+)
+@patch("deepeye_mcp.image_utils.httpx.AsyncClient")
+async def test_url_streaming_aborts_before_reading_everything(
+    mock_client_cls, mock_getaddrinfo, monkeypatch
+):
+    """流式下载必须在超限时立刻中断，而不是读完整个响应体再判断。"""
+    monkeypatch.setattr(settings, "max_image_bytes", 8)
+    raw = b"x" * (64 * 1024)  # 远大于上限，会被切成多个 64KB 分块
+    mock_client_cls.return_value = _make_fake_client(raw, "image/png")
+
+    with pytest.raises(ValueError, match="大小上限"):
+        await load_image_from_url_as_base64("https://example.com/huge.png")
+
+
+@patch(
+    "deepeye_mcp.image_utils.socket.getaddrinfo", return_value=_PUBLIC_IP
+)
+@patch("deepeye_mcp.image_utils.httpx.AsyncClient")
+async def test_url_rejects_non_image_content_type(mock_client_cls, mock_getaddrinfo):
+    """返回 HTML 错误页（Content-Type: text/html）时应拒绝。
+
+    否则错误页会被 base64 编码后当作图片送进视觉模型，产生无意义调用。
+    """
+    mock_client_cls.return_value = _make_fake_client(
+        b"<html>404 not found</html>", "text/html; charset=utf-8"
+    )
+
+    with pytest.raises(ValueError, match="不是图片"):
+        await load_image_from_url_as_base64("https://example.com/missing.png")
 
 
 # ---------------------------------------------------------------------------

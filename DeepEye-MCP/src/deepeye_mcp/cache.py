@@ -1,7 +1,12 @@
 """视觉识别结果缓存。
 
 基于 ``OrderedDict`` 实现 LRU + TTL 的内存缓存，避免对相同
-(图片哈希, 提示词, 模型) 三元组重复调用视觉后端。
+(图片哈希, 提示词, 模型, 参数指纹) 组合重复调用视觉后端。
+
+``variant`` 是调用方拼出的「后端 + 生成参数」指纹。它必须参与 key：
+仅用 (图片, 提示词, 模型) 时，切换 ``VISION_PROVIDER`` / ``OCR_BACKEND``
+或改动 ``max_tokens`` / ``reasoning_effort`` / ``response_format`` 后，
+同一次调用会命中旧后端的旧结果（历史缺陷）。
 
 缓存操作均为内存操作，无需异步；通过模块级单例
 :data:`vision_cache` 在 :func:`deepeye_mcp.tools._run_vision` 中复用。
@@ -42,20 +47,26 @@ class VisionCache:
         )
         self._ttl: int = ttl if ttl is not None else settings.cache_ttl
         # OrderedDict 中 value 为 (text, timestamp)
-        self._store: OrderedDict[tuple[str, str, str], tuple[str, float]] = OrderedDict()
+        self._store: OrderedDict[
+            tuple[str, str, str, str], tuple[str, float]
+        ] = OrderedDict()
         self._hits = 0
         self._misses = 0
         # 时间戳获取函数，便于测试注入（默认使用 time.monotonic）
         self._now = time.monotonic
 
     @staticmethod
-    def _make_key(image_hash: str, prompt: str, model: str) -> tuple[str, str, str]:
-        """构造缓存 key。"""
-        return (image_hash, prompt, model)
+    def _make_key(
+        image_hash: str, prompt: str, model: str, variant: str = ""
+    ) -> tuple[str, str, str, str]:
+        """构造缓存 key（含后端与生成参数指纹 ``variant``）。"""
+        return (image_hash, prompt, model, variant)
 
-    def get(self, image_hash: str, prompt: str, model: str) -> str | None:
+    def get(
+        self, image_hash: str, prompt: str, model: str, variant: str = ""
+    ) -> str | None:
         """查缓存，TTL 过期或未命中返回 ``None``。"""
-        key = self._make_key(image_hash, prompt, model)
+        key = self._make_key(image_hash, prompt, model, variant)
         entry = self._store.get(key)
         if entry is None:
             self._misses += 1
@@ -73,9 +84,16 @@ class VisionCache:
         self._hits += 1
         return text
 
-    def set(self, image_hash: str, prompt: str, model: str, text: str) -> None:
+    def set(
+        self,
+        image_hash: str,
+        prompt: str,
+        model: str,
+        text: str,
+        variant: str = "",
+    ) -> None:
         """写入缓存；容量超限时淘汰最旧条目。"""
-        key = self._make_key(image_hash, prompt, model)
+        key = self._make_key(image_hash, prompt, model, variant)
         self._store[key] = (text, self._now())
         # 写入即视为最近使用
         self._store.move_to_end(key)
