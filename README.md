@@ -36,7 +36,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | [`提示词/opencode-AGENTS.md`](提示词/opencode-AGENTS.md) | OpenCode | 全局 AGENTS.md 配置 |
 | [`提示词/hermesSOUL.md`](提示词/hermesSOUL.md) | Hermes | 身份与判断准则（SOUL） |
 | [`提示词/hermes笔记.md`](提示词/hermes笔记.md) | Hermes | 默认操作流程（WORK） |
-| [`提示词/RULE.md`](提示词/RULE.md) | Cursor | 规则源文件（纯 Markdown，与 Rule.mdc 配套） |
+| [`提示词/RULE.md`](提示词/RULE.md) | 通用 | 通用编码与 Agent 行为规则源（纯 Markdown，可套用至各 agent；Rule.mdc 为 Cursor 应用版） |
 | [`提示词/Rule.mdc`](提示词/Rule.mdc) | Cursor | Cursor 规则应用版（`.mdc`，`alwaysApply: true`） |
 | [`提示词/1bs.md`](提示词/1bs.md) | 通用 | 第一性原理 + 对抗性审阅提示词 |
 | [`提示词/2unc.md`](提示词/2unc.md) | 通用 | 不确定性枚举与验证方式提示词 |
