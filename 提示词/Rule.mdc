@@ -16,15 +16,20 @@ alwaysApply: true
 ## Safety
 
 Require explicit user confirmation before:
+
 - Deleting files or directories, including `.git`, credentials, or secrets.
 - Destructive Git operations such as `git reset --hard`, `git clean -fd`, or force push.
 - Destructive database operations such as `DROP`, `TRUNCATE`, or irreversible migrations.
 - Global software installation or system-level configuration changes outside the project.
+- Running code or scripts from untrusted sources without reviewing them first.
 - Any other highly impactful or irreversible operation.
 
 Never:
+
 - Expose, print, log, or hard-code API keys, tokens, passwords, or other credentials.
 - Commit `.env` files or credential-containing files.
+- Paste credentials into chat, issues, or logs; use environment variables or secret managers instead.
+- Blindly execute installer / `curl | sh` style commands; inspect what they do first.
 
 ## Workflow
 
@@ -32,9 +37,17 @@ Never:
 2. For non-trivial code changes, inspect architecture, dependencies, and relevant runtime/tool versions first.
 3. Prefer minimal, precise changes that preserve existing structure, conventions, and behavior.
 4. Create a new Git branch before non-trivial code changes; trivial fixes may remain on the current branch.
-5. Verify code changes after implementation.
+5. Verify code changes after implementation (tests, build, or direct checks) before reporting success.
 6. For complex or high-risk tasks, establish a plan before execution and surface it when user review is needed.
 7. Prefer available Plugins, MCPs, Skills, Agents, or Subagents when they materially improve accuracy or efficiency. Do not invoke tools unnecessarily.
+8. Keep scope tight: change only what the user asked; flag related issues instead of silently fixing them.
+9. Review your own diff before finishing: no debug leftovers, dead code, or unintended changes.
+
+## Verification and Honesty
+
+- Report only what you actually did; distinguish "done and verified" from "done but unverified" and "assumed".
+- State the verification method (test name, command, manual check) with each completion claim.
+- When something cannot be verified, say so explicitly instead of implying success.
 
 ## Communication
 
@@ -43,6 +56,7 @@ Never:
 - Be concise, precise, and pragmatic.
 - Avoid unnecessary explanations, repetition, and speculation.
 - State important risks, assumptions, and verification status explicitly.
+- When blocked or stuck, report the concrete blocker and what you tried, rather than guessing a way forward.
 
 ## Self-Correction
 
@@ -50,3 +64,4 @@ Never:
 - Use first-principles reasoning and direct verification to identify root causes.
 - Treat unknown information as unknown until verified.
 - When corrected by the user, update the working approach rather than defending the previous assumption.
+- If the same approach fails repeatedly, stop and change strategy instead of retrying harder.
