@@ -463,6 +463,18 @@ deepeye/
     └── test_tools.py
 ```
 
+## 致谢
+
+本项目是 [Favio8/deepeye](https://github.com/Favio8/deepeye) 的**二创**（衍生作品）。上游以 MIT 协议发布，本仓库在其基础上做了改造：包名由 `deepeye` 改为 `deepeye_mcp`、新增视觉后端适配器（Anthropic / OpenAI Responses / Gemini Interactions）、补充错误分类与重试、缓存与测试等。
+
+按 MIT 协议要求，上游的原始版权与许可文本已完整保留：
+
+- 上游项目：https://github.com/Favio8/deepeye
+- 上游原始版权：Copyright (c) 2026 Favio8
+- 本仓库改造部分：Modifications Copyright (c) 2026 ouli-1242
+
+---
+
 ## License
 
-[MIT](LICENSE) © DeepEye Contributors
+[MIT](LICENSE) © Favio8（上游）· ouli-1242（本仓库改造）

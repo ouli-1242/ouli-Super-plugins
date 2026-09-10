@@ -16,8 +16,8 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | 子目录 | 包名 | 版本 | 独立仓库 | 说明 |
 |---|---|---|---|---|
 | [`FastGraph-MCP/`](FastGraph-MCP/) | `fastgraph-mcp` | 0.1.0 | [ouli-1242/FastGraph-mcp](https://github.com/ouli-1242/FastGraph-mcp) | 轻量实时代码智能 MCP：AST + 增量索引 + 代码图，无 embedding、低内存、低 context；提供项目级检索、调用图与影响分析 |
-| [`Hound-MCP/`](Hound-MCP/) | `hound-mcp` | 13.14 | [ouli-1242/hound-mcp](https://github.com/ouli-1242/hound-mcp) | 让 AI 代理访问互联网：抓取、爬取、反爬绕过、PDF（含扫描件）解析、无密钥网页搜索，共 8 个工具 |
-| [`DeepEye-MCP/`](DeepEye-MCP/) | `deepeye-mcp` | 0.2.0 | [ouli-1242/deepeye-mcp](https://github.com/ouli-1242/deepeye-mcp) | 为纯文本大模型提供视觉能力：图像描述 / OCR / 视觉问答 / 布局分析 |
+| [`Hound-MCP/`](Hound-MCP/) | `hound-mcp` | 13.14 | [ouli-1242/hound-mcp](https://github.com/ouli-1242/hound-mcp) | 让 AI 代理访问互联网：抓取、爬取、反爬绕过、PDF（含扫描件）解析、无密钥网页搜索，共 8 个工具（二创自 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch)） |
+| [`DeepEye-MCP/`](DeepEye-MCP/) | `deepeye-mcp` | 0.2.0 | [ouli-1242/deepeye-mcp](https://github.com/ouli-1242/deepeye-mcp) | 为纯文本大模型提供视觉能力：图像描述 / OCR / 视觉问答 / 布局分析（二创自 [Favio8/deepeye](https://github.com/Favio8/deepeye)） |
 
 ### Agent Skill
 
@@ -44,7 +44,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 
 - **提示词配置**：`提示词/` 为各客户端全局规则 / 提示词源文件，按需复制到对应客户端的配置路径（如 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`）。
 - **Skill 插件**：`SuperWork/`、`SuperLite/` 各是完整独立的 Claude Code 插件（含 `.claude-plugin/` 与 `marketplace.json`，`source: "./"`）。如需直接安装，请分别单独建仓后再执行 `claude plugin install <repo-url>`。
-- **MCP Server**：`FastGraph-MCP/`、`Hound-MCP/`、`DeepEye-MCP/` 为 Python 包源码，本仓库为其镜像收录，开发与发布以各自独立仓库为准。安装方式见各子目录 README（`pip install .` 或 `pip install -e .`）。其中 **`Hound-MCP/` 是 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch) 的二创**（上游为 MIT，原始版权归原作者；完整声明见 `Hound-MCP/README.md` 的「致谢」段与 `Hound-MCP/LICENSE`）。
+- **MCP Server**：`FastGraph-MCP/`、`Hound-MCP/`、`DeepEye-MCP/` 为 Python 包源码，本仓库为其镜像收录，开发与发布以各自独立仓库为准。安装方式见各子目录 README（`pip install .` 或 `pip install -e .`）。其中 **`Hound-MCP/` 是 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch) 的二创**、**`DeepEye-MCP/` 是 [Favio8/deepeye](https://github.com/Favio8/deepeye) 的二创**（上游均为 MIT，原始版权归各自原作者；完整声明见各子目录 `README.md` 的「致谢」段与 `LICENSE`）。
 - **Agent Skill**：`chaoxing-tasker/` 为单个 `SKILL.md`，放入对应客户端的 skills 目录即可使用；`find-extensions/` 为 `SKILL.md` + `references/`（含 `search.mjs`，需 Node 运行），整体放入 skills 目录即可使用。
 - 各子目录保留其原有的 README、依赖声明、忽略规则与第三方许可说明（如 `Hound-MCP/LICENSE`、`Hound-MCP/NOTICE.ddgs.txt`），使用前请一并阅读。
-- 本仓库其余内容 MIT License，作者 Ouli；`Hound-MCP/` 及其派生代码的版权归属见该子目录的 `LICENSE` 与 `README.md`「致谢」段。
+- 本仓库其余内容 MIT License，作者 Ouli；`Hound-MCP/`、`DeepEye-MCP/` 及其派生代码的版权归属见各子目录的 `LICENSE` 与 `README.md`「致谢」段。
