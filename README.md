@@ -16,7 +16,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | 子目录 | 包名 | 版本 | 独立仓库 | 说明 |
 |---|---|---|---|---|
 | [`FastGraph-MCP/`](FastGraph-MCP/) | `fastgraph-mcp` | 0.1.0 | [ouli-1242/FastGraph-mcp](https://github.com/ouli-1242/FastGraph-mcp) | 轻量实时代码智能 MCP：AST + 增量索引 + 代码图，无 embedding、低内存、低 context；提供项目级检索、调用图与影响分析 |
-| [`Hound-MCP/`](Hound-MCP/) | `hound-mcp` | 11.1.8 | [ouli-1242/hound-mcp](https://github.com/ouli-1242/hound-mcp) | 让 AI 代理访问互联网：抓取、爬取、反爬绕过、PDF（含扫描件）解析、无密钥网页搜索，共 8 个工具 |
+| [`Hound-MCP/`](Hound-MCP/) | `hound-mcp` | 13.14 | [ouli-1242/hound-mcp](https://github.com/ouli-1242/hound-mcp) | 让 AI 代理访问互联网：抓取、爬取、反爬绕过、PDF（含扫描件）解析、无密钥网页搜索，共 8 个工具 |
 | [`DeepEye-MCP/`](DeepEye-MCP/) | `deepeye-mcp` | 0.2.0 | [ouli-1242/deepeye-mcp](https://github.com/ouli-1242/deepeye-mcp) | 为纯文本大模型提供视觉能力：图像描述 / OCR / 视觉问答 / 布局分析 |
 
 ### Agent Skill
