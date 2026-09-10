@@ -24,11 +24,27 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | 子目录 | 名称 | 说明 |
 |---|---|---|
 | [`chaoxing-tasker/`](chaoxing-tasker/) | `chaoxing-tasker` | 超星学习通任务助手：通过浏览器自动化完成作业、考试、签到、课点/视频、讨论任务，并汇报待办清单与完成结果 |
+| [`find-extensions/`](find-extensions/) | `find-extensions` | 扩展发现助手：按 skills / mcp / plugins 多渠道检索并按流行度分层推荐，给出各客户端对应的安装命令 |
+
+### 提示词配置（Prompt 配置）
+
+| 文件 | 适用客户端 | 说明 |
+|---|---|---|
+| [`提示词/CLAUDE.md`](提示词/CLAUDE.md) | Claude Code | 全局 CLAUDE.md 配置 |
+| [`提示词/codex-AGENTS.md`](提示词/codex-AGENTS.md) | Codex | 全局 AGENTS.md 配置 |
+| [`提示词/opencode-AGENTS.md`](提示词/opencode-AGENTS.md) | OpenCode | 全局 AGENTS.md 配置 |
+| [`提示词/hermesSOUL.md`](提示词/hermesSOUL.md) | Hermes | 身份与判断准则（SOUL） |
+| [`提示词/hermes笔记.md`](提示词/hermes笔记.md) | Hermes | 默认操作流程（WORK） |
+| [`提示词/RULE.md`](提示词/RULE.md) | 通用 | 编码与 Agent 行为规则 |
+| [`提示词/Rule.mdc`](提示词/Rule.mdc) | Cursor | 规则文件（`.mdc`，`alwaysApply: true`） |
+| [`提示词/1bs.md`](提示词/1bs.md) | 通用 | 第一性原理 + 对抗性审阅提示词 |
+| [`提示词/2unc.md`](提示词/2unc.md) | 通用 | 不确定性枚举与验证方式提示词 |
 
 ## 说明
 
+- **提示词配置**：`提示词/` 为各客户端全局规则 / 提示词源文件，按需复制到对应客户端的配置路径（如 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`）。
 - **Skill 插件**：`SuperWork/`、`SuperLite/` 各是完整独立的 Claude Code 插件（含 `.claude-plugin/` 与 `marketplace.json`，`source: "./"`）。如需直接安装，请分别单独建仓后再执行 `claude plugin install <repo-url>`。
 - **MCP Server**：`FastGraph-MCP/`、`Hound-MCP/`、`DeepEye-MCP/` 为 Python 包源码，本仓库为其镜像收录，开发与发布以各自独立仓库为准。安装方式见各子目录 README（`pip install .` 或 `pip install -e .`）。
-- **Agent Skill**：`chaoxing-tasker/` 为单个 `SKILL.md`，放入对应客户端的 skills 目录即可使用。
+- **Agent Skill**：`chaoxing-tasker/` 为单个 `SKILL.md`，放入对应客户端的 skills 目录即可使用；`find-extensions/` 为 `SKILL.md` + `references/`（含 `search.mjs`，需 Node 运行），整体放入 skills 目录即可使用。
 - 各子目录保留其原有的 README、依赖声明、忽略规则与第三方许可说明（如 `Hound-MCP/LICENSE`、`Hound-MCP/NOTICE.ddgs.txt`），使用前请一并阅读。
 - MIT License，作者 Ouli。
