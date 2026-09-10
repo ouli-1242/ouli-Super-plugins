@@ -1,8 +1,15 @@
-# Global CLAUDE Configuration
+# Global DSH AGENTS Configuration
 
 ## Environment
 
 - Operating system: Windows 11 Pro
+- Primary shell: PowerShell 7 (`pwsh`); use native PowerShell syntax unless the project explicitly requires Bash.
+
+## DSH Context
+
+- This file is the user-global instruction baseline loaded by DSH from `$DSH_HOME/AGENTS.md`.
+- More specific `AGENTS.md` / `CLAUDE.md` files in the project chain take precedence over this file.
+- Manage profile plugins with `dsh plugin --profile <name> ...`; do not edit profile package files by hand.
 
 ## Core Principles
 
@@ -16,9 +23,10 @@
 Before executing the following operations, explicit user confirmation must be obtained:
 
 - Deletion: `rm -rf`, `Remove-Item -Recurse -Force`, deleting the `.git` directory, deleting credential/secret files.
-- Dangerous Git operations: force push, `git reset --hard`, running `git clean -fd` on tracked files.
+- Dangerous Git operations: force push, `git reset --hard`, `git clean -fd` / `git clean -fdx`.
 - Dangerous database operations: `DROP`, `TRUNCATE`, irreversible database migrations.
 - System-level operations: global software installation, modifying operating system configuration outside the project directory.
+- DSH-level operations: installing/removing plugins in a profile, editing `$DSH_HOME` profiles or settings, or any other change that affects all projects.
 - Any other operations that are highly impactful or irreversible.
 
 ## Security and Privacy
@@ -40,7 +48,7 @@ Before executing the following operations, explicit user confirmation must be ob
 - **Editing**: Precise, minimal-scope modifications; preserve original formatting and coding conventions.
 - **Verification**: Code changes must be verified after implementation.
 - **Complex Tasks**: First, devise a plan; when involving significant architecture, irreversible operations, or high-risk changes, present the plan for user review.
-- **Tool Priority**: When applicable Plugins, MCPS, Skills, Agents, or Subagents exist, prioritize their use; for simple tasks that can be reliably completed without tools, do not force tool invocation.
+- **Tool Priority**: When applicable DSH Plugins, MCP servers, Skills, Agents, or Subagents exist, prioritize their use; for simple tasks that can be reliably completed without tools, do not force tool invocation.
 - **Feedback Handling**: If the user negates or corrects the previous step, re-evaluate the ambiguity and implementation complexity of the plan based on the new information.
 
 ## Self-Correction
