@@ -49,3 +49,10 @@ class ParseResult:
     imports: list[ImportRef]
     module_doc: str = ""
     template_refs: list[str] = field(default_factory=list)
+    module_calls: list[CallRef] = field(default_factory=list)
+    """Calls executed at import time (module level), i.e. outside any symbol.
+
+    Registration/wiring code such as ``register_adapter(PythonAdapter())`` or
+    ``app.include_router(...)`` lives here; without it the call graph and the
+    dead-code analysis would be blind to every module-level call site.
+    Carried by the per-file ``module`` symbol (see Indexer._store_file)."""

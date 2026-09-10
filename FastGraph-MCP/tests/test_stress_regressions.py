@@ -211,8 +211,9 @@ def test_cpp_struct_union_indexed(tmp_root):
     })
     assert tb.symbol_info("Point")["found"], "C++ struct not indexed"
     assert tb.symbol_info("U")["found"], "C++ union not indexed"
+    # every file also carries a `module` symbol (import-time calls live there)
     kinds = {s["kind"] for s in tb.file_symbols("tpl.cpp")["symbols"]}
-    assert kinds == {"struct", "union"}
+    assert kinds == {"module", "struct", "union"}
     db.close()
 
 

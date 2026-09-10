@@ -40,6 +40,36 @@ def _calls_in(node, source: bytes) -> list[CallRef]:
     return calls
 
 
+def _module_level_calls(node, source: bytes) -> list[CallRef]:
+    """Calls at a module's top level (import-time side effects).
+
+    Skips function/class bodies and variable declarations (whose initialiser
+    calls are already carried by the declared symbol), leaving module-scope
+    code such as ``registerAdapter(Foo)``, ``app.use(mw)`` or an IIFE — the
+    registration/wiring layer that would otherwise be absent from the call
+    graph. Mirrors ``parsers.python._module_level_calls``.
+    """
+    out: list[CallRef] = []
+
+    def walk(n, top: bool) -> None:
+        if not top and n.type in (
+            "function_declaration", "function_expression", "arrow_function",
+            "method_definition", "class_declaration", "lexical_declaration",
+            "variable_declaration",
+        ):
+            return
+        if n.type == "call_expression":
+            fn = n.child_by_field_name("function")
+            if fn is not None:
+                for target in call_targets(fn, source):
+                    out.append(CallRef(target=target, line=n.start_point[0] + 1))
+        for c in n.named_children:
+            walk(c, False)
+
+    walk(node, True)
+    return out
+
+
 def _js_doc(node, source: bytes) -> str:
     for c in node.named_children:
         if c.type == "comment":
@@ -252,7 +282,16 @@ class TSAdapter:
 
         walk(tree.root_node, [])
         imports.extend(_commonjs_imports(tree.root_node, source))
-        return ParseResult(language=self.lang, symbols=symbols, imports=imports)
+        # module-scope calls (registration/wiring) are carried by the per-file
+        # `module` symbol; drop any already counted on a declared symbol
+        already = {(c.target, c.line) for s in symbols for c in s.calls}
+        module_calls = [
+            c for c in _module_level_calls(tree.root_node, source)
+            if (c.target, c.line) not in already
+        ]
+        return ParseResult(
+            language=self.lang, symbols=symbols, imports=imports, module_calls=module_calls
+        )
 
 
 register_adapter(TSAdapter(lang="typescript", exts=(".ts", ".mts", ".cts")))

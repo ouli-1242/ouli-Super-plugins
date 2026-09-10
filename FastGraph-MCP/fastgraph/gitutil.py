@@ -22,10 +22,15 @@ def git_root(root: Path) -> Path | None:
     return None
 
 
-def changed_files(root: Path) -> dict:
-    """Return {path: status} for unstaged+untracked changes, relative POSIX paths."""
+def changed_files(root: Path, base: Path | None = None) -> dict:
+    """Return {path: status} for unstaged+untracked changes, relative POSIX paths.
+
+    ``base`` lets a caller that already resolved the git root (e.g. to fall
+    back to mtime detection for non-git projects) pass it in, avoiding a second
+    ``git rev-parse`` subprocess.
+    """
     changes: dict[str, str] = {}
-    base = git_root(root)
+    base = base if base is not None else git_root(root)
     if base is None:
         return changes
     try:

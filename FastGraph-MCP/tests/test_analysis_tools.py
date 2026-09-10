@@ -124,4 +124,5 @@ def test_analysis_tools_honor_root(toolbox):
             res = call()
             assert res["root"] == str(other.resolve()), name
     finally:
+        toolbox.close()  # release the sub-root's sqlite handles before deleting
         _rmtree(other)

@@ -4,7 +4,14 @@ __pycache__/
 dist/
 build/
 .fastgraph/
+.serena/
 .venv/
 venv/
 .pytest_cache/
 参考项目/
+# test scratch directories
+tests/work/
+tests/work_*/
+tests/*_work/
+tests/*_work*/
+tests/*_analysis/

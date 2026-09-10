@@ -30,13 +30,48 @@ def _parse_calls(node, source: bytes) -> list[CallRef]:
                     for a in arg.named_children:
                         if a.type == "identifier":
                             name = node_text(a, source, 120)
-                            if name:
-                                calls.append(CallRef(target=name, line=a.start_point[0] + 1, rtype="references"))
+                        elif a.type == "attribute":
+                            # a callable passed as a value (``ex.map(self._parse_only, xs)``,
+                            # ``sort(key=self._key)``, ``Thread(target=fn)``): the trailing
+                            # attribute name is the referenced symbol, so it must count as
+                            # a usage or dead-code detection reports it as unused
+                            name = node_text(a, source, 160).rsplit(".", 1)[-1]
+                        else:
+                            continue
+                        if name:
+                            calls.append(CallRef(target=name, line=a.start_point[0] + 1, rtype="references"))
         for c in n.named_children:
             walk(c)
 
     walk(node)
     return calls
+
+
+def _module_level_calls(node, source: bytes) -> list[CallRef]:
+    """Calls executed at import time: module level only.
+
+    Walks the whole file but stops at every ``def``/``class`` (and their
+    decorators, which would otherwise contribute noisy ``app.get``-style
+    targets), so what remains is the module's own straight-line code —
+    registration, wiring and ``if __name__ == "__main__": main()``.
+    """
+    out: list[CallRef] = []
+
+    def walk(n) -> None:
+        if n.type in (
+            "function_definition", "class_definition", "decorated_definition", "lambda",
+        ):
+            return
+        if n.type == "call":
+            fn = n.child_by_field_name("function")
+            if fn is not None:
+                for target in call_targets(fn, source):
+                    out.append(CallRef(target=target, line=n.start_point[0] + 1))
+        for c in n.named_children:
+            walk(c)
+
+    walk(node)
+    return out
 
 
 def _docstring(node, source: bytes) -> str:
@@ -176,7 +211,21 @@ class PythonAdapter:
                     walk(c, stack)
 
         walk(tree.root_node, [])
-        return ParseResult(language=self.lang, symbols=symbols, imports=imports, module_doc=module_doc)
+        # Module-level calls are carried by the per-file `module` symbol (added
+        # by the indexer). Drop those already attributed to a module-level
+        # variable symbol so `app = FastAPI()` is not counted twice.
+        already = {(c.target, c.line) for s in symbols for c in s.calls}
+        module_calls = [
+            c for c in _module_level_calls(tree.root_node, source)
+            if (c.target, c.line) not in already
+        ]
+        return ParseResult(
+            language=self.lang,
+            symbols=symbols,
+            imports=imports,
+            module_doc=module_doc,
+            module_calls=module_calls,
+        )
 
 
 register_adapter(PythonAdapter())

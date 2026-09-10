@@ -40,7 +40,7 @@ def _cpp_calls(node, source: bytes) -> list[CallRef]:
 
 class CppAdapter:
     lang = "cpp"
-    exts = (".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx")
+    exts = (".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx")
 
     _parser: Parser | None = None
 

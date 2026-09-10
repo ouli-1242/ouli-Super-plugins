@@ -6,9 +6,6 @@ import re
 
 from fastgraph.db import DB
 
-_STOPWORDS: set[str] = set()
-
-
 _TOKEN_MAX = 128  # a token longer than this is a pasted blob, not a search term
 
 
@@ -32,31 +29,39 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
 
     # 1) exact & prefix name matches (case-insensitive: `=` in SQLite is
     #    case-sensitive; user queries like "DeepSeekLLM" use case but the
-    #    stored symbol name must match regardless of case)
-    name_clauses, params = (
-        ["LOWER(s.name) = ?", "LOWER(s.qualified_name) = ?"],
-        [tokens[0], tokens[0]],
-    )
-    # first token also as prefix/substring (covers partial names e.g. "orchestrator")
-    name_clauses.append("LOWER(s.name) LIKE ?")
-    params.append(f"%{tokens[0]}%")
-    # remaining tokens only if they add real signal: 2-char tokens like "it"
-    # in "markdown-it" match almost everything (initRadar, write, visit...) and
-    # crowd out the real hit; require >=3 chars for name-level scoring
+    #    stored symbol name must match regardless of case).
+    #    The first token must appear (exact / qualified / substring); every
+    #    additional token must ALSO match the name. OR-ing the extra tokens made
+    #    a phrase query behave like "match any word": searching "CAPABILITY
+    #    MODE" returned every symbol containing "mode" and filled the limit, so
+    #    the content tier below (comments/strings — where the phrase actually
+    #    lives) was never reached.
+    base = "LOWER(s.name) = ? OR LOWER(s.qualified_name) = ? OR LOWER(s.name) LIKE ?"
+    params = [tokens[0], tokens[0], f"%{tokens[0]}%"]
+    # extra tokens only if they add real signal: 2-char tokens like "it" in
+    # "markdown-it" match almost everything and crowd out the real hit.
+    # NOTE: the first-token group must be parenthesised, otherwise SQL's
+    # precedence (AND binds tighter than OR) makes the extra tokens apply to
+    # the last OR operand only.
+    extra = []
     for t in tokens[1:4]:
         if len(t) < 3:
             continue
-        name_clauses.append("LOWER(s.name) LIKE ?")
+        extra.append("LOWER(s.name) LIKE ?")
         params.append(f"%{t}%")
+    name_expr = f"({base})"
+    if extra:
+        name_expr += " AND " + " AND ".join(extra)
+    conditions = [name_expr]
     # CJK queries: FTS5's default unicode61 tokenizer treats a whole CJK run
     # as a single token, so `"学习"*` never matches a doc that merely contains
     # the phrase. Fall back to substring LIKE on doc/signature for non-ASCII.
     if re.search("[一-鿿]", query):
         cjk = next((t for t in tokens if re.search("[一-鿿]", t)), None)
         if cjk:
-            name_clauses.append("LOWER(s.doc) LIKE ?")
+            conditions.append("LOWER(s.doc) LIKE ?")
             params.append(f"%{cjk}%")
-            name_clauses.append("LOWER(s.signature) LIKE ?")
+            conditions.append("LOWER(s.signature) LIKE ?")
             params.append(f"%{cjk}%")
     # kind is a *filter* on the name matches, not another OR'd clause
     # (was: OR'd into the name chain, so kind="function" returned every
@@ -64,7 +69,7 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
     sql = (
         """SELECT s.id, s.name, s.kind, s.qualified_name, s.signature, s.start_line, f.path
            FROM symbols s JOIN files f ON f.id = s.file_id
-           WHERE (""" + " OR ".join(name_clauses) + ")"
+           WHERE (""" + " OR ".join(conditions) + ")"
     )
     if kind:
         sql += " AND s.kind = ?"
@@ -72,16 +77,15 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
     sql += " LIMIT ?"
     rows = db.conn.execute(sql, params + [limit]).fetchall()
 
-    # 2) FTS doc/signature search. fts_symbols is a contentless FTS5 table
-    #    (content=''): rows carry only rowid (= symbols.id), so resolve hits
-    #    through symbols by id. MATCH must reference the table, not a column.
+    # 2) FTS doc/signature search. fts_symbols is a regular (not contentless)
+    #    FTS5 table whose key column is `rowid` — kept equal to symbols.id so a
+    #    MATCH hit resolves straight to its symbol. MATCH must reference the
+    #    table, not a column (searching `id` raised and was swallowed, so doc/
+    #    signature search silently never matched — A15).
     fts_tokens = [t for t in tokens[:3] if len(t) >= 3]
     fts_query = " AND ".join(f'"{t}"*' for t in fts_tokens)
     fts_ids: list[int] = []
     try:
-        # fts_symbols is a regular FTS5 table: its implicit key column is
-        # `rowid`, not `id` (searching `id` raised and was swallowed, so doc/
-        # signature search silently never matched — A15).
         fts_ids = [
             r[0]
             for r in db.conn.execute(
@@ -107,11 +111,16 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
         fts_rows = []
 
     seen: set[int] = set()
-    for r in list(rows) + list(fts_rows):
-        if r[0] in seen:
-            continue
-        seen.add(r[0])
-        results.append(_make_hit(r, query))
+    # label the tier each hit came from: FTS hits are doc/signature matches, and
+    # calling them "name" made the two tiers indistinguishable in the output
+    for tier, tier_rows in (("name", rows), ("doc", fts_rows)):
+        for r in tier_rows:
+            if r[0] in seen:
+                continue
+            seen.add(r[0])
+            results.append(_make_hit(r, tier))
+            if len(results) >= limit:
+                break
         if len(results) >= limit:
             break
     if len(results) < limit and kind is None:
@@ -181,7 +190,7 @@ def _import_hits(db: DB, query: str, limit: int) -> list[dict]:
     return out
 
 
-def _make_hit(r: tuple, query: str) -> dict:
+def _make_hit(r: tuple, match: str = "name") -> dict:
     return {
         "symbol": r[1],
         "kind": r[2],
@@ -189,5 +198,5 @@ def _make_hit(r: tuple, query: str) -> dict:
         "signature": r[4],
         "line": r[5],
         "file": r[6],
-        "match": "name",
+        "match": match,
     }

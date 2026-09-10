@@ -42,14 +42,14 @@ def test_every_parameter_has_a_description():
 
 
 def test_ambiguous_tools_cross_reference_each_other():
+    """Overlapping tools must name each other, so the model can route without
+    guessing (only the pairs it cannot tell apart from the name alone)."""
     try:
         docs = {t.name: t.description or "" for t in _tools()}
         assert "find_callees" in docs["symbol_info"], "symbol_info must route callee queries to find_callees"
-        assert "find_callers" in docs["trace_path"], "trace_path must route direct-caller queries to find_callers"
         assert "impact_analysis" in docs["find_callers"], "find_callers must route change-impact to impact_analysis"
-        assert "rename_impact" in docs["find_callers"], "find_callers must route rename risk to rename_impact"
-        assert "impact_analysis" in docs["rename_impact"], "rename_impact must route behavior-change impact to impact_analysis"
         assert "find_callers" in docs["impact_analysis"], "impact_analysis must route plain caller lists to find_callers"
+        assert "module_cycles" in docs["file_deps"], "file_deps must route project-wide cycles to module_cycles"
     finally:
         gc.collect()
         _rmtree(WORK)

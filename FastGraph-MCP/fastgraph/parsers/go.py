@@ -49,7 +49,30 @@ class GoAdapter:
         def walk(node, stack: list[SymbolInfo], in_struct: bool) -> None:
             t = node.type
             if t == "import_declaration":
-                imports.append(ImportRef(text=node_text(node, source, 300), line=node.start_point[0] + 1))
+                # One row per imported path: storing the whole `import (...)`
+                # block as a single row made it classify as an *internal* import
+                # as soon as one of its paths resolved, hiding every stdlib
+                # sibling from `external_imports` (and losing per-import lines).
+                specs: list = []
+                pending = list(node.named_children)
+                while pending:
+                    cur = pending.pop()
+                    if cur.type == "import_spec":
+                        specs.append(cur)
+                    else:
+                        pending.extend(cur.named_children)
+                if specs:
+                    for spec in specs:
+                        imports.append(
+                            ImportRef(
+                                text=node_text(spec, source, 200),
+                                line=spec.start_point[0] + 1,
+                            )
+                        )
+                else:  # defensive: unknown grammar shape, keep the raw text
+                    imports.append(
+                        ImportRef(text=node_text(node, source, 300), line=node.start_point[0] + 1)
+                    )
             elif t == "function_declaration":
                 name = node_text(node.child_by_field_name("name"), source, 120)
                 params = node.child_by_field_name("parameters")

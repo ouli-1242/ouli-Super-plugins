@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from collections import deque
 from pathlib import Path
 
 from fastgraph.db import DB
+from fastgraph.parsers.registry import language_for_path
 
 
 def symbol_row(r: tuple) -> dict:
@@ -22,6 +24,32 @@ def symbol_row(r: tuple) -> dict:
     }
 
 
+_OVERLOAD_SUFFIX_RE = re.compile(r"\[\d+\]$")
+
+
+def normalize_symbol_query(name: str) -> str:
+    """Accept slash name paths in addition to FastGraph's dotted names.
+
+    A name path is ``/``-separated, may carry a leading ``/`` (absolute form)
+    and a trailing overload index (``MyClass/my_method[1]``); FastGraph stores
+    dotted qualified names. Callers paste identifiers from one tool into the
+    next, so both spellings are accepted here rather than forcing a translation
+    step. ``Class.method`` / ``top`` are returned unchanged.
+    """
+    if not name:
+        return name
+    s = name.strip()
+    s = _OVERLOAD_SUFFIX_RE.sub("", s)
+    if "/" in s:
+        s = s.strip("/").replace("/", ".")
+    return s
+
+
+def name_path(qname: str) -> str:
+    """FastGraph dotted qualified name -> slash name path (``A.B.m`` -> ``A/B/m``)."""
+    return (qname or "").replace(".", "/")
+
+
 def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
     """Locate symbols by plain name or dotted qualified name.
 
@@ -29,7 +57,11 @@ def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
     ``module.Class.method`` — the leading segment is resolved to its
     module/class symbol's file, then the rest is matched against qualified
     names inside that file (A7).
+
+    Also accepts slash name paths (``Class/method``, ``/Class/method``,
+    ``Class/method[1]``) via :func:`normalize_symbol_query`.
     """
+    name = normalize_symbol_query(name)
     q = (
         "SELECT s.id, s.name, s.kind, s.qualified_name, s.signature, s.start_line, "
         "f.path"
@@ -71,15 +103,6 @@ def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
     return [symbol_row(r) for r in rows[:limit]]
 
 
-def lookup_exact(db: DB, name: str) -> list[int]:
-    ids: list[int] = []
-    for r in db.conn.execute(
-        "SELECT id FROM symbols WHERE name = ? OR qualified_name = ?", (name, name)
-    ).fetchall():
-        ids.append(r[0])
-    return ids
-
-
 def symbol_by_id(db: DB, sid: int) -> dict | None:
     r = db.conn.execute(
         """SELECT s.id, s.name, s.kind, s.qualified_name, s.signature, s.start_line,
@@ -106,14 +129,11 @@ def symbol_by_id(db: DB, sid: int) -> dict | None:
 def callers(db: DB, sid: int) -> list[int]:
     """Direct in-edges (calls only): relations targeting sid."""
     rows = db.conn.execute(
-        "SELECT source_id FROM relations WHERE target_id = ? AND rtype = 'calls'", (sid,)
+        "SELECT source_id FROM relations WHERE target_id = ? AND rtype = 'calls' "
+        "ORDER BY source_id",
+        (sid,),
     ).fetchall()
     return [r[0] for r in rows]
-
-
-def caller_ids(db: DB, sid: int) -> list[int]:
-    """Keep the old helper name for compatibility."""
-    return callers(db, sid)
 
 
 def callee_ids(db: DB, sid: int) -> list[int]:
@@ -138,25 +158,94 @@ def callee_names_with_lines(db: DB, sid: int) -> list[dict]:
 
 
 def find_callers(db: DB, name: str, limit: int = 30, depth: int = 1) -> list[dict]:
-    """Who calls `name` (optionally transitively, BFS up to depth)."""
+    """Who calls `name` (optionally transitively, BFS up to depth).
+
+    Each result carries ``via``: ``"resolved"`` for a stored call edge,
+    ``"text"`` for a raw-text fold -- an *unresolved* edge whose text happens
+    to name the symbol (`thing.do_something()` folds onto a class called
+    ``thing`` even when the receiver is an unrelated object). Text folds are
+    guesses; filter on ``via`` when precision matters.
+    """
     roots = find_symbols(db, name)
     if not roots:
         return []
     root_ids, member_ids = _expand_container_roots(db, roots)
+    # keep discovery order (breadth-first, then by source id): a bare set made
+    # the result order arbitrary, so the most relevant caller was not reliably
+    # first
+    ordered: list[int] = []
+    via_of: dict[int, str] = {}
     seen: set[int] = set()
     frontier = list(root_ids)
     level = 0
     while frontier and level < depth:
         nxt: list[int] = []
         for sid in frontier:
-            for c in _callers_with_class(db, sid):
+            for c, via in _callers_with_class(db, sid):
                 if c not in seen:
                     seen.add(c)
+                    via_of[c] = via
+                    ordered.append(c)
                     nxt.append(c)
         frontier = nxt
         level += 1
-    out = [symbol_by_id(db, s) for s in seen if s not in root_ids and s not in member_ids]
-    return [o for o in out if o][:limit]
+    out: list[dict] = []
+    for s in ordered:
+        if s in root_ids or s in member_ids:
+            continue
+        info = symbol_by_id(db, s)
+        if not info:
+            continue
+        info["via"] = via_of.get(s, "resolved")
+        out.append(info)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def caller_trace(db: DB, name: str, max_depth: int = 20, limit: int = 50) -> list[dict]:
+    """Transitive callers of ``name`` as a *leveled trace*.
+
+    Unlike :func:`find_callers` (a flat set), each entry records the ``depth``
+    at which it was reached and the immediate caller that leads to it (``via``),
+    so the result reads as a chain instead of an unordered set.
+    """
+    roots = find_symbols(db, name)
+    if not roots:
+        return []
+    root_ids, member_ids = _expand_container_roots(db, roots)
+    display: dict[int, str] = {
+        r["id"]: (r.get("qualified_name") or r.get("name") or "") for r in roots
+    }
+    seen: set[int] = set(root_ids)
+    out: list[dict] = []
+    frontier = list(root_ids)
+    depth = 0
+    while frontier and depth < max_depth and len(out) < limit:
+        depth += 1
+        nxt: list[int] = []
+        for sid in frontier:
+            for c, _via in _callers_with_class(db, sid):
+                if c in seen:
+                    continue
+                seen.add(c)
+                nxt.append(c)
+                info = symbol_by_id(db, c)
+                if not info:
+                    continue
+                display[c] = info["qualified_name"] or info["name"]
+                if c in member_ids:
+                    continue
+                entry = _brief(info)
+                entry["depth"] = depth
+                entry["via"] = display.get(sid, "")
+                out.append(entry)
+                if len(out) >= limit:
+                    break
+            if len(out) >= limit:
+                break
+        frontier = nxt
+    return out
 
 
 def _symbol_ids(rows: list[dict]) -> set[int]:
@@ -196,6 +285,7 @@ def find_callees(db: DB, name: str, limit: int = 50, depth: int = 1) -> list[dic
     if not roots:
         return []
     root_ids, member_ids = _expand_container_roots(db, roots)
+    ordered: list[int] = []
     seen: set[int] = set()
     frontier = list(root_ids)
     level = 0
@@ -205,14 +295,54 @@ def find_callees(db: DB, name: str, limit: int = 50, depth: int = 1) -> list[dic
             for c in callee_ids(db, sid):
                 if c not in seen and c not in root_ids:
                     seen.add(c)
+                    ordered.append(c)
                     nxt.append(c)
         frontier = nxt
         level += 1
-    out = [symbol_by_id(db, s) for s in seen if s not in member_ids]
+    out = [symbol_by_id(db, s) for s in ordered if s not in member_ids]
     return [o for o in out if o][:limit]
 
 
-def _callers_with_class(db: DB, sid: int) -> list[int]:
+def unresolved_incoming(db: DB, name: str, qname: str = "") -> int:
+    """Call-like edges whose text names this symbol but never resolved.
+
+    Resolution is name-based, so a call that cannot be pinned to one symbol
+    keeps ``target_id`` NULL, and ``find_callers`` then returns an empty list
+    -- which reads as "nobody calls this". This count is the correction: it
+    says how many unresolved edges name the symbol, so "no callers" can be
+    told apart from "callers we could not resolve".
+    """
+    total = 0
+    seen: set[str] = set()
+    for cand in (name, qname):
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        esc = _like_escape(cand)
+        total += db.conn.execute(
+            "SELECT COUNT(*) FROM relations WHERE target_id IS NULL "
+            "AND rtype IN ('calls', 'references') "
+            "AND (LOWER(target) = LOWER(?) OR target LIKE ? ESCAPE '\\' "
+            "     OR target LIKE ? ESCAPE '\\')",
+            (cand, f"%.{esc}", f"%::{esc}"),
+        ).fetchone()[0]
+    return total
+
+
+def unresolved_outgoing(db: DB, sid: int) -> int:
+    """Calls a symbol makes that were never resolved to a target.
+
+    ``find_callees`` drops them; reporting the count keeps a short callee list
+    from reading as "this symbol depends on nothing".
+    """
+    return db.conn.execute(
+        "SELECT COUNT(*) FROM relations WHERE source_id = ? AND target_id IS NULL "
+        "AND rtype IN ('calls', 'references')",
+        (sid,),
+    ).fetchone()[0]
+
+
+def _callers_with_class(db: DB, sid: int, fold_owner: bool = False) -> list[tuple[int, str]]:
     """Callers of a symbol, plus callers of its enclosing class's members.
 
     Resolves chains like ``chat() -> orchestrator.handle_chat -> ... -> TutorAgent``
@@ -226,38 +356,62 @@ def _callers_with_class(db: DB, sid: int) -> list[int]:
       (``Cls.method`` edges fold back to ``Cls``; constructors via
       ``new Cls()`` / ``Cls()`` edges count for the class);
     - member symbols fold *exactly*: only their own unresolved text edge
-      (``Cls.method``) and the container's constructor edge (``Cls``) count.
-      Never a ``Cls.%`` prefix match: that would report every caller of
-      sibling members (other methods, auto-generated getters/setters) as a
-      caller of this member.
+      (``Cls.method``); constructors additionally fold their container's
+      constructor edge (``Cls``). Never a ``Cls.%`` prefix match: that would
+      report every caller of sibling members (other methods, auto-generated
+      getters/setters) as a caller of this member.
+
+    ``fold_owner`` controls the owner (``Cls``) fold for ordinary members:
+
+    - False (precision; "who calls / is affected" queries — find_callers,
+      impact_analysis, caller_trace): only constructors fold their container.
+      Applying it to every member made each ``Cls(...)`` instantiation site a
+      caller of *all* of Cls's methods, which buried the real callers and
+      contradicted rename_impact (which never folds).
+    - True (recall; "is A connected to B" queries — path_between): folding the
+      owner reconnects classes that merely instantiate the target's class, so
+      ``trace_path("Proxy", "LLMClient.chat")`` still finds the path through
+      ``Proxy.__init__ -> LLMClient()`` when the actual call edge is
+      unresolvable.
 
     Bare module-level functions never text-fold: mere references such as
     FastAPI ``Depends(fn)`` must not masquerade as callers.
     """
-    out = list(callers(db, sid))
+    out: list[tuple[int, str]] = [(s, "resolved") for s in callers(db, sid)]
+    seen = {s for s, _ in out}
     info = symbol_by_id(db, sid)
     if not info:
         return out
     qname = info.get("qualified_name") or ""
     kind = info.get("kind") or ""
+
+    def add_text(rows) -> None:
+        for r in rows:
+            if r[0] not in seen:
+                seen.add(r[0])
+                out.append((r[0], "text"))
+
     if kind in ("class", "interface", "struct", "impl", "enum"):
         candidates = {qname, info.get("name") or ""}
         # longest first: dotted qualified names outmatch bare names
         for cand in sorted((c for c in candidates if c), key=len, reverse=True):
-            for r in db.conn.execute(
-                "SELECT DISTINCT source_id FROM relations WHERE target = ? OR target LIKE ?",
-                (cand, cand + ".%"),
-            ):
-                if r[0] not in out:
-                    out.append(r[0])
-    elif "." in qname:
-        for cand in (qname, qname.rsplit(".", 1)[0]):
-            for r in db.conn.execute(
-                "SELECT DISTINCT source_id FROM relations WHERE target = ?",
-                (cand,),
-            ):
-                if r[0] not in out:
-                    out.append(r[0])
+            esc = _like_escape(cand)
+            add_text(db.conn.execute(
+                "SELECT DISTINCT source_id FROM relations WHERE target = ? "
+                "OR target LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\' "
+                "ORDER BY source_id",
+                (cand, f"%.{esc}", f"%::{esc}"),
+            ))
+    elif "." in qname or "::" in qname:
+        cands = [qname]
+        if fold_owner or info.get("name") in ("__init__", "__new__", "__post_init__", "constructor"):
+            cands.append(qname.rsplit("::" if "::" in qname else ".", 1)[0])
+        for cand in cands:
+            add_text(db.conn.execute(
+                "SELECT DISTINCT source_id FROM relations "
+                "WHERE target = ? OR target LIKE ? ESCAPE '\\' ORDER BY source_id",
+                (cand, f"%.{_like_escape(cand)}"),
+            ))
     return out
 
 
@@ -278,7 +432,10 @@ def path_between(db: DB, from_name: str, to_name: str, max_depth: int = 8) -> li
     for depth in range(max_depth):
         nxt: list[int] = []
         for sid in frontier:
-            for c in _callers_with_class(db, sid):
+            # fold_owner=True: connectivity between two given symbols is a
+            # recall problem (a class that merely instantiates the target's
+            # class still counts as a path), unlike "who calls X"
+            for c, _via in _callers_with_class(db, sid, fold_owner=True):
                 if c in visited:
                     continue
                 visited.add(c)
@@ -314,14 +471,20 @@ def impact_analysis(db: DB, name: str, max_depth: int = 3, limit: int = 50) -> d
     for depth in range(max_depth):
         nxt: list[int] = []
         for sid in frontier:
-            for c in _callers_with_class(db, sid):
+            for c, via in _callers_with_class(db, sid):
                 if c in seen or c in root_ids or c in member_ids:
                     continue
                 seen.add(c)
                 info = symbol_by_id(db, c)
                 if info:
                     key = "HIGH" if depth == 0 else "MEDIUM"
-                    buckets[key].append(_impact_brief(info))
+                    brief = _impact_brief(info)
+                    # "text" entries are unresolved edges whose text names the
+                    # symbol -- a guess, not a stored call. Surfaced so a HIGH
+                    # impact is not read as a certainty.
+                    if via != "resolved":
+                        brief["via"] = via
+                    buckets[key].append(brief)
                 nxt.append(c)
         frontier = nxt
         if not frontier:
@@ -346,7 +509,7 @@ def impact_analysis(db: DB, name: str, max_depth: int = 3, limit: int = 50) -> d
 
 
 def _impact_brief(info: dict) -> dict:
-    return {
+    out = {
         "name": info["name"],
         "qualified_name": info["qualified_name"],
         "kind": info["kind"],
@@ -354,9 +517,28 @@ def _impact_brief(info: dict) -> dict:
         "lines": f"{info['start_line']}-{info['end_line']}",
         "signature": (info["signature"] or "")[:120],
     }
+    np = name_path(info["qualified_name"])
+    if np and np != info["name"]:
+        # emit the slash name path only for nested symbols: a top-level name is
+        # already identical in both spellings, so the key would be pure noise
+        out["name_path"] = np
+    return out
 
 
-_IMP_RE = re.compile(r"(?:from\s+|import\s*\{[^}]+\}\s*from\s*|import\s+|require\(|using\s+)(['\"]?)([\w./@~-]+)", re.IGNORECASE)
+# Module specifier of one import statement. The ESM `import <bindings> from
+# '<path>'` branch must come first: bare `import\s+` matched the *bindings*, so
+# `import axios from './lib/axios.js'` resolved the name "axios" -- the local
+# variable, not the path. Measured on axios: 395 of ~700 import rows use that
+# form, i.e. more than half of its dependency graph resolved by variable name.
+_IMP_RE = re.compile(
+    r"(?:"
+    r"import\s+[^'\"]*?\bfrom\s+"   # ESM: import X / {a, b} / * as ns from 'p'
+    r"|from\s+"                      # python: from pkg.mod import name
+    r"|import\s+"                    # bare side-effect import: import 'p'
+    r"|require\(|using\s+"           # CommonJS / C#
+    r")(['\"]?)([\w./@~-]+)",
+    re.IGNORECASE,
+)
 
 
 def _imported_names(text: str) -> list[str]:
@@ -438,26 +620,38 @@ def resolve_file(db: DB, path: str) -> str | None:
     return None
 
 
-def file_symbols(db: DB, path: str, limit: int = 200) -> list[dict]:
-    """All indexed symbols declared in one file, in source order."""
+def file_symbols(db: DB, path: str, limit: int = 200) -> tuple[list[dict], bool]:
+    """All indexed symbols declared in one file, in source order.
+
+    Returns ``(symbols, truncated)``: ``limit + 1`` rows are fetched so the
+    caller can tell a complete list from a capped one (a silent cap made a
+    200-symbol file look like it had only 12).
+    """
     resolved = resolve_file(db, path)
     if resolved is None:
-        return []
+        return [], False
     rows = db.conn.execute(
         """SELECT s.id, s.name, s.kind, s.qualified_name, s.signature,
                   s.start_line, s.end_line, f.path
            FROM symbols s JOIN files f ON f.id = s.file_id
            WHERE f.path = ? ORDER BY s.start_line, s.start_col LIMIT ?""",
-        (resolved, limit),
+        (resolved, limit + 1),
     ).fetchall()
+    truncated = len(rows) > limit
     return [
         {"id": r[0], "symbol": r[1], "kind": r[2], "qualified_name": r[3],
          "signature": (r[4] or "")[:120], "lines": f"{r[5]}-{r[6]}", "file": r[7]}
-        for r in rows
-    ]
+        for r in rows[:limit]
+    ], truncated
 
 
 _alias_cache: dict[tuple[Path, str], dict[str, str]] = {}
+# Keyed by (root, importing *directory*): every file in a directory resolves
+# the same aliases, so the cache stays proportional to the number of
+# directories rather than files. Bounded with LRU-style eviction — clearing the
+# whole cache on overflow would thrash on repos with many directories.
+_ALIAS_CACHE_MAX = 4096
+_ALIAS_MAX_ASCENT = 64
 
 
 def _alias_prefixes(db: DB, import_file: str | None = None) -> dict[str, str]:
@@ -467,28 +661,28 @@ def _alias_prefixes(db: DB, import_file: str | None = None) -> dict[str, str]:
     project root, so sub-projects (e.g. a uni-app miniapp folder) resolve
     their own aliases (`@` → miniapp root when pages.json lives there).
     Sources (deeper dirs override): tsconfig/jsconfig compilerOptions paths,
-    vite resolve.alias, and the uni-app convention. Cached per (root, import
-    file); never guesses when no config exists.
+    the compilerOptions ``baseUrl`` (kept under the ``""`` key), vite
+    resolve.alias, and the uni-app convention. Cached per (root, importing
+    directory); never guesses when no config exists.
     """
     root = db.root
-    key = (root, import_file or "")
-    if key in _alias_cache:
-        return _alias_cache[key]
+    base_dir = (root / import_file).parent if import_file else root
+    key = (root, str(base_dir))
+    cached = _alias_cache.get(key)
+    if cached is not None:
+        return cached
     m: dict[str, str] = {}
     dirs: list[Path] = []
-    if import_file:
-        cur = (root / import_file).parent
-        while True:
-            dirs.append(cur)
-            if cur == root:
-                break
-            parent = cur.parent
-            if parent == cur:
-                break
-            cur = parent
-        dirs.reverse()  # root first, deepest dir overrides on conflict
-    else:
-        dirs = [root]
+    cur = base_dir
+    for _ in range(_ALIAS_MAX_ASCENT):
+        dirs.append(cur)
+        if cur == root:
+            break
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    dirs.reverse()  # root first, deepest dir overrides on conflict
     for d in dirs:
         for cfg_name in ("jsconfig.json", "tsconfig.json"):
             cfg = d / cfg_name
@@ -506,6 +700,12 @@ def _alias_prefixes(db: DB, import_file: str | None = None) -> dict[str, str]:
                 tgt = str(targets[0]).split("/*")[0].rstrip("*")
                 if alias and tgt:
                     m[alias] = tgt.strip("./")
+            base_url = (data.get("compilerOptions") or {}).get("baseUrl")
+            if isinstance(base_url, str):
+                # "" is the sentinel entry: bare specifiers resolve from here,
+                # and an empty value means the config's own directory. Without
+                # it a baseUrl project's bare imports would look like packages.
+                m[""] = base_url.strip().strip("./")
         for vname in ("vite.config.js", "vite.config.ts", "vite.config.mjs"):
             vcfg = d / vname
             if not vcfg.is_file():
@@ -518,63 +718,610 @@ def _alias_prefixes(db: DB, import_file: str | None = None) -> dict[str, str]:
                     m[am.group(1)] = am.group(2).strip("'\"")
         if not any(k == "@" for k in m) and (d / "pages.json").is_file():
             m["@"] = ""  # uni-app: @ → this directory (sub-project root)
+    if len(_alias_cache) >= _ALIAS_CACHE_MAX:
+        _alias_cache.pop(next(iter(_alias_cache)), None)  # evict oldest
     _alias_cache[key] = m
     return m
 
 
-def import_targets(db: DB, import_text: str, import_file: str) -> list[str]:
-    """Guess which indexed files an import statement refers to."""
-    m = _IMP_RE.search(import_text)
-    if not m:
+# Import forms the generic regex above cannot express. Go imports a
+# parenthesised block of quoted paths, Rust imports ``use a::b::Item``, and
+# C/C++ imports ``#include "x.h"`` / ``#include <x>``; none contains a keyword
+# ``_IMP_RE`` knows, so those three languages produced *no* internal dependency
+# edges at all (empty file_deps / module_cycles / layering) even though their
+# imports were collected by the parsers.
+_GO_PATH_RE = re.compile(r'"([^"\n]+)"')
+_RUST_USE_RE = re.compile(r"\buse\s+([^;{]+)", re.IGNORECASE)
+_RUST_PREFIX_RE = re.compile(r"^(?:crate|self|super)(?:::|$)")
+_CPP_INCLUDE_RE = re.compile(r'#\s*include\s*[<"]([^>"]+)[>"]')
+
+
+def _go_modules(text: str) -> list[str]:
+    """``import (\n "bytes"\n "path/filepath"\n)`` -> its quoted paths."""
+    return _GO_PATH_RE.findall(text)
+
+
+def _rust_modules(text: str) -> list[str]:
+    """``use crate::a::b::Item;`` -> ``["a.b"]`` (the module the item lives in).
+
+    Rust paths are ``::``-separated and normally end in the imported item, so
+    the last segment is dropped when more than one remains; ``crate``/``self``/
+    ``super`` are stripped because resolution matches file stems, not crate
+    roots. A braced group (``use a::b::{C, D}``) imports from the path before
+    the brace.
+    """
+    out: list[str] = []
+    for raw in _RUST_USE_RE.findall(text):
+        path = _RUST_PREFIX_RE.sub("", raw.split("{", 1)[0].strip()).strip(":")
+        segs = [s for s in path.split("::") if s and s != "*"]
+        if not segs:
+            continue
+        if len(segs) > 1:
+            segs = segs[:-1]
+        out.append(".".join(segs))
+    return out
+
+
+def _cpp_modules(text: str) -> list[str]:
+    """``#include "core.h"`` -> ``["core.h"]``; ``#include <vector>`` -> ``["vector"]``.
+
+    The path and extension are kept (only leading separators are dropped): the
+    extension is what keeps ``"jv.h"`` from resolving to a sibling ``jv.c``, and
+    a relative include path resolves next to the including file.
+    """
+    out: list[str] = []
+    for raw in _CPP_INCLUDE_RE.findall(text):
+        path = raw.replace("\\", "/").lstrip("/")
+        if path:
+            out.append(path)
+    return out
+
+
+_MODULE_EXTRACTORS = {"go": _go_modules, "rust": _rust_modules, "cpp": _cpp_modules}
+
+# ---- module-root aware resolution (Go modules, Rust crates) ----
+#
+# Both languages define what an import path means relative to a build-file root,
+# so resolution can be exact instead of "a file somewhere with this name":
+# go.mod's `module` line turns "github.com/spf13/cobra/internal/x" into the
+# directory internal/x, and Rust's crate root turns `crate::a::b` into
+# <crate>/src/a/b.rs (or a/b/mod.rs). Lookups are cached per (root, directory).
+_GO_PREFIX_CACHE_MAX = 4096
+_go_module_cache: dict[tuple, tuple[str, str] | None] = {}
+_rust_root_cache: dict[tuple, str | None] = {}
+
+
+def _cached_put(cache: dict, key: tuple, value) -> None:
+    if len(cache) >= _GO_PREFIX_CACHE_MAX:
+        cache.pop(next(iter(cache)), None)  # evict oldest
+    cache[key] = value
+
+
+def _go_module_for(db: DB, import_file: str) -> tuple[str, str] | None:
+    """``(module path, directory holding its go.mod)`` for the importing file.
+
+    The nearest go.mod upward defines the module a file belongs to, which is
+    what makes an import path decidable: anything under ``<module>/`` is an
+    in-repo package, anything else is stdlib or a third-party module.
+    """
+    directory = import_file.rpartition("/")[0]
+    key = (db.root, directory)
+    if key in _go_module_cache:
+        return _go_module_cache[key]
+    result: tuple[str, str] | None = None
+    d = directory
+    while True:
+        cfg = (db.root / d / "go.mod") if d else (db.root / "go.mod")
+        if cfg.is_file():
+            try:
+                text = cfg.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            m = re.search(r"(?m)^\s*module\s+(\S+)", text)
+            if m:
+                result = (m.group(1).strip('"'), d)
+            break
+        if not d:
+            break
+        d = d.rpartition("/")[0]
+    _cached_put(_go_module_cache, key, result)
+    return result
+
+
+def _rust_crate_root(db: DB, import_file: str) -> str | None:
+    """The crate root directory (``…/src``, ``…/tests``) of the importing file.
+
+    ``crate::`` paths are relative to that root, and an integration test is its
+    own crate rooted at ``tests/`` — which is why ``tests/binary.rs``'s
+    ``use crate::util::…`` means ``tests/util.rs`` rather than a same-named file
+    under some other crate's src/.
+    """
+    directory = import_file.rpartition("/")[0]
+    key = (db.root, directory)
+    if key in _rust_root_cache:
+        return _rust_root_cache[key]
+    marked = f"/{import_file}"
+    root: str | None = None
+    for marker in ("src", "tests", "benches", "examples"):
+        idx = f"/{marker}/"
+        if idx in marked:
+            # split the *marked* form: at the project root there is no leading
+            # slash in the stored path, so splitting it directly misses
+            prefix = marked.split(idx, 1)[0].lstrip("/")
+            root = f"{prefix}/{marker}" if prefix else marker
+            break
+    _cached_put(_rust_root_cache, key, root)
+    return root
+
+
+def _dir_files(db: DB, rel_dir: str, allowed: set[str] | None) -> list[str]:
+    """Indexed files directly inside ``rel_dir`` (a package/module directory)."""
+    entries = db.dir_stem_map().get(rel_dir)
+    if not entries:
         return []
-    mod = m.group(2)
+    out: list[str] = []
+    for paths in entries.values():
+        for p in paths:
+            if _lang_ok(allowed, p) and p not in out:
+                out.append(p)
+    return out
+
+
+def _go_targets(db: DB, import_text: str, import_file: str) -> list[str] | None:
+    """Resolve Go imports through go.mod, or None when there is no module file."""
+    info = _go_module_for(db, import_file)
+    if info is None:
+        return None
+    module, mod_dir = info
+    allowed = _LANG_TARGET_EXTS.get("go")
+    out: list[str] = []
+    for path in _go_modules(import_text):
+        if path == module:
+            rel = mod_dir
+        elif path.startswith(module + "/"):
+            tail = path[len(module) + 1:]
+            rel = f"{mod_dir}/{tail}" if mod_dir else tail
+        else:
+            continue  # stdlib or another module: external by definition
+        for f in _dir_files(db, rel, allowed):
+            if f not in out:
+                out.append(f)
+    return out[:5]
+
+
+def _rust_use_paths(text: str) -> list[tuple[str, int, list[str]]]:
+    """``use`` paths as ``(kind, super_hops, segments)``.
+
+    ``kind`` is ``crate`` / ``self`` / ``super`` for a crate-relative path and
+    ``""`` for a bare path (an external crate, or Rust 2015 style).
+    """
+    out: list[tuple[str, int, list[str]]] = []
+    for raw in _RUST_USE_RE.findall(text):
+        segs = [s for s in raw.split("{", 1)[0].strip().split("::") if s and s != "*"]
+        if not segs:
+            continue
+        kind = ""
+        hops = 0
+        while segs and segs[0] in ("crate", "self", "super"):
+            head = segs.pop(0)
+            if head == "crate":
+                kind = "crate"
+            elif head == "self":
+                kind = kind or "self"
+            else:
+                kind = "super"
+                hops += 1
+        out.append((kind, hops, segs))
+    return out
+
+
+def _rust_targets(db: DB, import_text: str, import_file: str) -> list[str] | None:
+    """Resolve crate-relative Rust `use` paths.
+
+    Returns None when there is no structural opinion to offer (no crate root, or
+    no ``crate::``-style path in the text), so the caller can fall back to name
+    matching for bare paths.
+    """
+    paths = [p for p in _rust_use_paths(import_text) if p[0]]
+    root = _rust_crate_root(db, import_file)
+    if root is None or not paths:
+        return None
+    allowed = _LANG_TARGET_EXTS.get("rust")
+    dirs = db.dir_stem_map()
+    file_dir = import_file.rpartition("/")[0]
+    out: list[str] = []
+
+    def hits(base: str, segs: list[str]) -> list[str]:
+        # the path names a module file, or an item inside that module, so try
+        # the whole path first and then drop the last segment
+        for n in (len(segs), len(segs) - 1):
+            if n <= 0:
+                continue
+            sub = "/".join(segs[:n])
+            parent, _, name = f"{base}/{sub}".rpartition("/")
+            found = [
+                p
+                for p in dirs.get(parent, {}).get(name.lower(), ())
+                if _ext_ok(".rs", p) and _lang_ok(allowed, p)
+            ]
+            if found:
+                return found
+            found = [
+                p
+                for p in dirs.get(f"{base}/{sub}", {}).get("mod", ())
+                if _ext_ok(".rs", p) and _lang_ok(allowed, p)
+            ]
+            if found:
+                return found
+        return []
+
+    for kind, hops, segs in paths:
+        if kind == "crate":
+            found = hits(root, segs)
+        else:
+            # self:: / super:: are module-relative, and a module file's parent
+            # module is usually its own directory (a/b.rs -> module a::b; only
+            # mod.rs sits one level below). Walk upward so both layouts resolve.
+            base = file_dir
+            for _ in range(max(0, hops - 1)):
+                base = base.rpartition("/")[0]
+            found = []
+            while True:
+                found = hits(base, segs)
+                if found or not base:
+                    break
+                base = base.rpartition("/")[0]
+        for f in found:
+            if f not in out:
+                out.append(f)
+    return out[:5]
+
+
+# Extensions an import may name explicitly. When it does, only files with a
+# compatible extension may match: `#include "jv.h"` must not resolve to jv.c
+# (that single conflation was 92 of jq's 363 import rows and most of fmt's).
+_SOURCE_EXTS = {
+    ".py", ".pyi", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx",
+    ".vue", ".svelte", ".java", ".go", ".rs",
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+}
+# TS projects import "./x.js" for a source file named x.ts (Node's TS
+# resolution), so a .js specifier may land on a TS file as well. The families
+# are kept narrow otherwise: `.js` must not match a sibling `.cjs`/`.mjs`/
+# `.vue`, which is exactly what the last ambiguous rows on axios were.
+_EXT_ALIASES = {
+    ".js": {".js", ".jsx", ".ts", ".tsx"},
+    ".jsx": {".jsx", ".tsx"},
+    ".mjs": {".mjs", ".mts"},
+    ".cjs": {".cjs", ".cts"},
+    ".py": {".py", ".pyi"},
+}
+# Include families stay strict: a header specifier must match a header.
+for _family in ((".h",), (".hh", ".hpp", ".hxx")):
+    for _e in _family:
+        _EXT_ALIASES[_e] = set(_family)
+
+
+def _split_ext(mod: str) -> tuple[str, str]:
+    """Peel a trailing source extension off a module candidate.
+
+    ``"jv.h"`` -> ``("jv", ".h")``; ``"lib.axios"`` -> ``("lib.axios", "")``.
+    """
+    base, dot, tail = mod.rpartition(".")
+    if dot:
+        ext = f".{tail.lower()}"
+        if ext in _SOURCE_EXTS:
+            return base, ext
+    return mod, ""
+
+
+# Which file types an import from a given language may resolve to. Without this
+# a Python `import os` resolved to the C++ files os.h / os.cc in the same repo
+# (fmt's last two ambiguous rows), and any mixed-language repo could
+# cross-connect by name alone.
+_LANG_TARGET_EXTS: dict[str, set[str]] = {
+    "python": {".py", ".pyi"},
+    "java": {".java"},
+    "go": {".go"},
+    "rust": {".rs"},
+    "cpp": {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"},
+}
+_JS_FAMILY_EXTS = {
+    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".vue", ".svelte",
+}
+for _js_lang in ("javascript", "typescript", "tsx", "vue", "svelte"):
+    _LANG_TARGET_EXTS[_js_lang] = set(_JS_FAMILY_EXTS)
+# Languages whose bare specifiers are package names, not project paths: under
+# Node resolution `vitest/config` is a node_modules package, and matching it to
+# a project file named vitest.config.js was 60 of axios's remaining ambiguous
+# rows. Python/Java/Go/Rust bare names *are* project paths, so this is JS-only.
+_JS_FAMILY = {"javascript", "typescript", "tsx", "vue", "svelte"}
+
+
+def _ext_ok(want: str, path: str) -> bool:
+    """True when ``path`` may satisfy an import that named extension ``want``."""
+    if not want:
+        return True
+    got = Path(path).suffix.lower()
+    return got == want or got in _EXT_ALIASES.get(want, ())
+
+
+def _lang_ok(allowed: set[str] | None, path: str) -> bool:
+    """True when ``path`` is a plausible target for the importing language."""
+    return allowed is None or Path(path).suffix.lower() in allowed
+
+
+# A specifier may name a *directory* rather than a file: under Node/TS
+# resolution `./server` is `server/index.ts`, and a Python package import
+# (`from .pkg import x`) is `pkg/__init__.py`. Neither named an indexed file, so
+# vite's `import './importing-updated'` rows resolved to nothing (35 unresolved
+# rows on a repo where every other gap was closed).
+_DIR_ENTRY_STEMS = ("index", "__init__")
+# Only Python and JS-family files act as directory entries: `index.h` is just a
+# file named index, so a C++ `#include "./x.h"` must not fall into a directory.
+_DIR_ENTRY_EXTS = {".py", ".pyi"} | set(_JS_FAMILY_EXTS)
+
+
+def _dir_entry_files(
+    dirs: dict[str, dict[str, list[str]]], d: str, want_ext: str, allowed: set[str] | None
+) -> list[str]:
+    """Entry-point files (``index.*`` / ``__init__.*``) of directory ``d``.
+
+    An explicit extension means the specifier names a file
+    (``./server.js`` must not land in a ``server/`` directory), so the lookup
+    only applies to extension-less specifiers.
+    """
+    if want_ext:
+        return []
+    sub = dirs.get(d)
+    if not sub:
+        return []
+    out: list[str] = []
+    for stem in _DIR_ENTRY_STEMS:
+        for p in sub.get(stem, ()):
+            if (
+                p not in out
+                and Path(p).suffix.lower() in _DIR_ENTRY_EXTS
+                and _ext_ok(want_ext, p)
+                and _lang_ok(allowed, p)
+            ):
+                out.append(p)
+    return out
+
+
+def _local_entry_lookup(
+    db: DB, src_file: str, rel: str, allowed: set[str] | None
+) -> list[str]:
+    """Resolve ``rel`` as a *directory* holding the module entry file.
+
+    ``rel`` is the specifier with ``/`` separators (``server``, ``pkg/sub``); it
+    is tried as a subdirectory of the importing file's directory and of each
+    ancestor, which covers ``./server`` (same directory) and a Python package
+    path (``pkg.sub`` rooted at a directory on that chain).
+    """
+    dirs = db.dir_stem_map()
+    d = src_file.rpartition("/")[0]
+    while True:
+        sub = f"{d}/{rel}" if d else rel
+        hits = _dir_entry_files(dirs, sub, "", allowed)
+        if hits:
+            return hits
+        if not d:
+            return []
+        d = d.rpartition("/")[0]
+
+
+def _local_lookup(
+    db: DB, src_file: str, stem: str, want_ext: str, allowed: set[str] | None
+) -> list[str]:
+    """Files named ``stem`` in the importing file's directory, then ancestors.
+
+    A relative import, a quoted ``#include`` and a crate-relative ``use`` all
+    resolve next to the importing file long before they resolve by basename
+    anywhere in the repo. Trying this first is what stops
+    ``tests/binary.rs``'s ``use crate::util::…`` from matching a same-named
+    ``util.rs`` in another crate (14 of ripgrep's 17 ambiguous rows).
+    """
+    dirs = db.dir_stem_map()
+    d = src_file.rpartition("/")[0]
+    want = stem.lower()
+    while True:
+        hits = [
+            p
+            for p in dirs.get(d, {}).get(want, ())
+            if _ext_ok(want_ext, p) and _lang_ok(allowed, p)
+        ]
+        if hits:
+            return hits
+        if not d:
+            return []
+        d = d.rpartition("/")[0]
+
+
+def _resolve_module(
+    db: DB,
+    mod: str,
+    import_file: str,
+    import_text: str,
+    allowed: set[str] | None = None,
+    bare_is_external: bool = False,
+) -> list[str]:
+    """Resolve one module candidate to indexed files (shared normalization).
+
+    Order: named aliases -> tsconfig ``baseUrl`` -> the importing file's own
+    directory and its ancestors -> a repo-wide dotted-stem suffix match. Every
+    step honors the extension the import named and the importing language's
+    plausible target types.
+    """
+    mod, want_ext = _split_ext(mod)
+    aliases = _alias_prefixes(db, import_file)
+    bare = not mod.startswith((".", "/"))
     # configured import aliases (`@/x`, tsconfig paths, vite alias): substitute
     # the prefix before the stem matching below
-    for alias, tgt in sorted(_alias_prefixes(db, import_file).items(), key=lambda kv: -len(kv[0])):
+    for alias, tgt in sorted(aliases.items(), key=lambda kv: -len(kv[0])):
+        if not alias:  # "" is the baseUrl sentinel, handled below
+            continue
         if mod == alias or mod.startswith(alias + "/"):
             rest = mod[len(alias):].lstrip("/")
             mod = f"{tgt}/{rest}" if tgt else rest
+            bare = False
             break
+    if bare and "" in aliases:
+        # tsconfig baseUrl: bare specifiers resolve from that directory (an
+        # empty value means the config's own directory)
+        base = aliases[""]
+        mod = f"{base}/{mod}" if base else mod
+        bare = False
+    if bare and bare_is_external:
+        return []  # a package, not a project path
+    # A relative path naming a file ("./classes/x.js") resolves against the
+    # importing file's directory as a *path*: the basename fallback below would
+    # happily pick the same-named file of a sibling platform instead (browser/
+    # vs node/ build variants -- the last ambiguous rows on axios).
+    if import_file and mod.startswith(".") and "/" in mod:
+        base_dir = import_file.rpartition("/")[0]
+        head, _, tail = mod.rpartition("/")
+        target_dir = posixpath.normpath(posixpath.join(base_dir, head))
+        if target_dir == ".":
+            target_dir = ""
+        dirs = db.dir_stem_map()
+        hits = [
+            p
+            for p in dirs.get(target_dir, {}).get(tail.lower(), ())
+            if _ext_ok(want_ext, p) and _lang_ok(allowed, p)
+        ]
+        if hits:
+            return hits
+        # …or the specifier names a *directory* whose entry file is the module
+        # (`import './importing-updated'` -> importing-updated/index.js).
+        sub = f"{target_dir}/{tail}" if target_dir else tail
+        entry = _dir_entry_files(dirs, sub, want_ext, allowed)
+        if entry:
+            return entry
     if mod.startswith((".", "/")):
         rel = mod[1:] if mod.startswith(".") else mod
         mod = rel.replace("/", ".")
     else:
         mod = mod.replace("/", ".")
     mod = mod.strip(".")
-    # CommonJS require paths often carry a file extension ("./x/index.js")
-    # while the index stores extension-less stems; normalize before matching.
-    for _ext in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx"):
-        if mod.endswith(_ext):
-            mod = mod[: -len(_ext)]
-            break
-    dir_part = "/".join(import_file.split("/")[:-1])
-    rel_root = f"{dir_part}/" if dir_part else ""
-    candidates: list[str] = []
     # Match case-insensitively: Java/C# fully-qualified names are mixed-case
-    # (com.travel...RateLimiter), and the file stems below are lowercased, so a
+    # (com.travel...RateLimiter), and the file stems are lowercased, so a
     # case-sensitive compare would never match them (A8).
     mod = mod.lower()
-    for (p,) in db.conn.execute("SELECT path FROM files"):
-        stem = p.rsplit(".", 1)[0].replace("/", ".").lower()
-        if stem == mod or stem.endswith("." + mod):
-            candidates.append(p)
-        elif mod.startswith(".") and p.lower() == rel_root + mod[1:] + ".__init__":
-            candidates.append(p)
+    entries: list[str] = []
+    if import_file and mod:
+        local = _local_lookup(db, import_file, mod.rsplit(".", 1)[-1], want_ext, allowed)
+        if local:
+            return local
+        # …or the specifier names a package directory rather than a module file
+        # (`from .pkg import x` -> pkg/__init__.py; `import pkg.sub` ->
+        # pkg/sub/__init__.py). Held back as a fallback: a real same-named
+        # module anywhere (suffix lookup, `from pkg import sub`) is the better
+        # answer, and returning both would turn a single match into noise.
+        if not want_ext:
+            entries = _local_entry_lookup(db, import_file, mod.replace(".", "/"), allowed)
+    # Suffix lookup instead of a files-table scan: ``mod`` matches a file when
+    # its dotted stem equals ``mod`` or ends with ``.{mod}`` — exactly the set
+    # of files whose stem has ``mod`` as a suffix.
+    by_suffix = db.stem_suffix_map()
+    candidates: list[str] = [
+        p for p in by_suffix.get(mod, ()) if _ext_ok(want_ext, p) and _lang_ok(allowed, p)
+    ]
     # `from pkg import a, b, c` (multi-symbol package import): the regex only
     # captured `pkg`, so also resolve each imported name against pkg's dir.
-    _multi = re.match(r"\s*from\s+[\w./@~-]+\s+import\s+(.+)", import_text, re.IGNORECASE)
+    _multi = re.match(r"\s*from\s+([\w./@~-]+)\s+import\s+(.+)", import_text, re.IGNORECASE)
     if not candidates and _multi:
-        names_part = _multi.group(1).split(" as ")[0]
+        pkg_part = _multi.group(1)
+        names_part = _multi.group(2).split(" as ")[0]
         for name in (n.strip().rstrip(",") for n in names_part.split(",")):
             if not name or "." in name or name in ("*", "(", ")"):
                 continue
-            target = f"{mod}.{name.lower()}"
-            for (p,) in db.conn.execute("SELECT path FROM files"):
-                stem = p.rsplit(".", 1)[0].replace("/", ".").lower()
-                if stem == target or stem.endswith("." + target):
+            if not mod and pkg_part.startswith(".") and import_file:
+                # `from . import x` / `from .. import x`: the module part is
+                # empty, and x is a module or package inside the importing
+                # file's own package directory -- one level up per extra dot.
+                # The suffix lookup below cannot see this form (`.` never
+                # matches a stem), so requests' 11 `from . import _types`
+                # rows resolved to nothing.
+                base = import_file.rpartition("/")[0]
+                for _ in range(len(pkg_part) - 1):
+                    base = base.rpartition("/")[0]
+                dirs = db.dir_stem_map()
+                before = len(candidates)
+                for p in dirs.get(base, {}).get(name.lower(), ()):
+                    if p not in candidates and _ext_ok(want_ext, p) and _lang_ok(allowed, p):
+                        candidates.append(p)
+                sub = f"{base}/{name}" if base else name
+                for p in _dir_entry_files(dirs, sub, want_ext, allowed):
                     if p not in candidates:
                         candidates.append(p)
-    return candidates[:5]
+                if len(candidates) == before:
+                    # neither a module nor a subpackage of `.`: the name comes
+                    # from the package entry itself (requests' tests re-export
+                    # SNIMissingWarning from tests/__init__.py)
+                    for p in _dir_entry_files(dirs, base, want_ext, allowed):
+                        if p not in candidates:
+                            candidates.append(p)
+                continue
+            for p in by_suffix.get(f"{mod}.{name.lower()}", ()):
+                if p not in candidates and _ext_ok(want_ext, p) and _lang_ok(allowed, p):
+                    candidates.append(p)
+    if not candidates:
+        # nothing named `mod` exists: the specifier is a package directory
+        return entries
+    return candidates
+
+
+def _without_self(targets: list[str], import_file: str) -> list[str]:
+    """Drop the importing file from its own import targets.
+
+    A package-level import resolves to every file of that package, which can
+    include the importer itself (a Go ``_test`` package importing its own
+    directory, a Rust ``mod.rs`` re-exporting a child). Nothing depends on
+    itself, and such an edge surfaced as a bogus 1-file cycle.
+
+    The cap is high enough for a package directory; a low one silently dropped
+    real dependencies of packages with many files.
+    """
+    return [t for t in targets if t != import_file][:20]
+
+
+def import_targets(db: DB, import_text: str, import_file: str) -> list[str]:
+    """Guess which indexed files an import statement refers to."""
+    lang = language_for_path(import_file) or ""
+    allowed = _LANG_TARGET_EXTS.get(lang)
+    bare_external = lang in _JS_FAMILY
+    # Go and Rust know their own module roots, so resolve those structurally:
+    # "<module>/internal/x" and crate::a::b name a *directory*, and matching
+    # their last segment against file stems would happily pick a same-named file
+    # from another module or crate.
+    if lang == "go":
+        structured = _go_targets(db, import_text, import_file)
+        if structured is not None:
+            return _without_self(structured, import_file)
+    elif lang == "rust":
+        structured = _rust_targets(db, import_text, import_file)
+        if structured is not None:
+            return _without_self(structured, import_file)
+    extractor = _MODULE_EXTRACTORS.get(lang)
+    if extractor is None:
+        m = _IMP_RE.search(import_text)
+        mods = [m.group(2)] if m else []
+    else:
+        mods = extractor(import_text)
+        if lang == "go":
+            # no go.mod to resolve against: fall back to the package name in the
+            # last segment, and only for >=3 segments so that two-segment stdlib
+            # paths ("net/http") cannot match an unrelated same-named file
+            mods = mods + [m.rsplit("/", 1)[-1] for m in mods if m.count("/") >= 2]
+    out: list[str] = []
+    for mod in mods:
+        for target in _resolve_module(
+            db, mod, import_file, import_text, allowed, bare_external
+        ):
+            if target not in out:
+                out.append(target)
+    return _without_self(out, import_file)
 
 
 def module_dependencies(db: DB, path: str) -> dict:
@@ -625,6 +1372,7 @@ def project_overview(db: DB) -> dict:
         "files": len(files),
         "symbols": db.count_symbols(),
         "languages": by_lang,
+        "index_version": db.get_meta("index_version"),
         "top_level": {
             r[0]: r[1]
             for r in db.conn.execute(
@@ -874,6 +1622,9 @@ def module_cycles(db: DB, max_cycles: int = 10) -> list[dict]:
 _ENTRY_NAMES = {
     "main.py", "__main__.py", "app.py", "cli.py", "manage.py", "serve.py",
     "app.ts", "index.ts", "index.js", "index.tsx", "index.jsx", "main.ts", "main.go", "main.rs",
+    # C/C++ and Java were missing, so a repo whose only entry point is main.c
+    # (jq) or Main.java reported no entry points at all
+    "main.c", "main.cc", "main.cpp", "main.cxx", "Main.java",
 }
 
 
@@ -912,6 +1663,7 @@ def rename_impact(db: DB, name: str, limit: int = 100) -> dict:
 
     Uses both resolved relations (calls/inherits) and raw import text.
     """
+    name = normalize_symbol_query(name)
     defs = find_symbols(db, name)
     refs: list[dict] = []
     if defs:
@@ -1029,7 +1781,7 @@ def _risk_grade(defs: list[dict], refs: list[dict]) -> dict:
 
 
 def _brief(sym: dict) -> dict:
-    return {
+    out = {
         "symbol": sym.get("name"),
         "qualified_name": sym.get("qualified_name"),
         "kind": sym.get("kind"),
@@ -1037,6 +1789,10 @@ def _brief(sym: dict) -> dict:
         "lines": f"{sym.get('start_line')}-{sym.get('end_line')}" if sym.get("end_line") else f"{sym.get('start_line')}",
         "signature": (sym.get("signature") or "")[:120],
     }
+    np = name_path(sym.get("qualified_name"))
+    if np and np != sym.get("name"):
+        out["name_path"] = np
+    return out
 
 
 def type_hierarchy(db: DB, name: str) -> dict:

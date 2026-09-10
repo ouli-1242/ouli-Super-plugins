@@ -88,6 +88,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(
 """
 
 
+def _stem_of(path: str) -> str:
+    """``src/pkg/mod.py`` -> ``src.pkg.mod`` (lowercased, extension dropped)."""
+    return path.rsplit(".", 1)[0].replace("/", ".").lower()
+
+
 class DB:
     def __init__(self, root: Path):
         self.root = root.resolve()
@@ -97,6 +102,8 @@ class DB:
         self.db_path = self.index_dir / "index.sqlite"
         self._local = threading.local()
         self._all_conns: list[sqlite3.Connection] = []
+        self._stem_suffix_map: dict[str, list[str]] | None = None
+        self._dir_stem_map: dict[str, dict[str, list[str]]] | None = None
         conn = self._new_conn()
         self._local.conn = conn
         self._all_conns.append(conn)
@@ -183,17 +190,61 @@ class DB:
 
     # ---------------- files ----------------
 
-    def file_map(self) -> dict[str, float]:
+    def file_map(self) -> dict[str, tuple[float, int]]:
+        """path -> (mtime, size), the incremental-change comparison key."""
         return {
-            p: m
-            for p, m in self.conn.execute("SELECT path, mtime FROM files")
+            p: (m, s)
+            for p, m, s in self.conn.execute("SELECT path, mtime, size FROM files")
         }
+
+    def stem_suffix_map(self) -> dict[str, list[str]]:
+        """Dotted-stem suffix -> file paths, for O(1) import resolution.
+
+        ``src/pkg/mod.py`` contributes ``src.pkg.mod``, ``pkg.mod`` and ``mod``,
+        so an import of ``pkg.mod`` resolves via a dict lookup instead of a
+        scan of the files table. Cached; invalidated whenever the file set
+        changes (``upsert_file`` / ``delete_file``). This turns the import
+        resolution used by file_deps / module_cycles / project_overview from
+        O(files^2) into O(files).
+        """
+        cached = self._stem_suffix_map
+        if cached is not None:
+            return cached
+        m: dict[str, list[str]] = {}
+        for (p,) in self.conn.execute("SELECT path FROM files ORDER BY path"):
+            parts = _stem_of(p).split(".")
+            for i in range(len(parts)):
+                m.setdefault(".".join(parts[i:]), []).append(p)
+        self._stem_suffix_map = m
+        return m
+
+    def dir_stem_map(self) -> dict[str, dict[str, list[str]]]:
+        """Directory -> {extension-less file name -> paths}, for local imports.
+
+        Import resolution prefers the importing file's own directory (then its
+        ancestors) before falling back to a repo-wide basename match: a quoted
+        ``#include "core.h"`` means the sibling header, and a crate-relative
+        ``use crate::util::…`` means the same-directory ``util.rs`` rather than
+        a same-named file in another crate. Keys are lowercased, like
+        ``stem_suffix_map()``, and cached with the same invalidation.
+        """
+        cached = self._dir_stem_map
+        if cached is not None:
+            return cached
+        m: dict[str, dict[str, list[str]]] = {}
+        for (p,) in self.conn.execute("SELECT path FROM files ORDER BY path"):
+            d, _, name = p.rpartition("/")
+            m.setdefault(d, {}).setdefault(name.rsplit(".", 1)[0].lower(), []).append(p)
+        self._dir_stem_map = m
+        return m
 
     def get_file_id(self, path: str) -> int | None:
         r = self.conn.execute("SELECT id FROM files WHERE path=?", (path,)).fetchone()
         return r[0] if r else None
 
     def upsert_file(self, path: str, language: str, hash_: str, mtime: float, size: int) -> int:
+        self._stem_suffix_map = None
+        self._dir_stem_map = None
         fid = self.get_file_id(path)
         if fid is None:
             cur = self.conn.execute(
@@ -208,6 +259,15 @@ class DB:
         return fid
 
     def delete_file(self, path: str):
+        self._stem_suffix_map = None
+        self._dir_stem_map = None
+        # fts_symbols has no foreign key, so it is NOT covered by the
+        # files -> symbols ON DELETE CASCADE and must be cleared explicitly.
+        # Otherwise its rows survive as orphans (observed: a rebuild that
+        # removed every indexed file left 1676 orphan FTS rows behind), and a
+        # later rebuild can collide with the rowids SQLite re-assigns after all
+        # symbols are gone.
+        self.conn.execute("DELETE FROM fts_symbols WHERE file_path=?", (path,))
         self.conn.execute("DELETE FROM files WHERE path=?", (path,))
         self.conn.execute("DELETE FROM parse_errors WHERE path=?", (path,))
 
@@ -308,10 +368,16 @@ class DB:
         rowid == symbols.id so search can resolve MATCH hits straight to
         symbols by id. Delete this file's rows by rowid, then re-insert.
         """
-        if not symbols:
-            return
         if self._heal_fts():
             return  # full rebuild already covers this file's rows
+        # A re-indexed file's symbols get fresh rowids (replace_file_symbols
+        # deletes and re-inserts them), so deleting only the *new* ids would
+        # leave the previous rows behind as orphans that accumulate on every
+        # edit. file_path is already stored in the FTS row: delete the file's
+        # whole slice, including the empty-symbols case below.
+        self.conn.execute("DELETE FROM fts_symbols WHERE file_path = ?", (path,))
+        if not symbols:
+            return
         # map symbols to their rowids by (name, kind, start_line): `name` alone
         # is ambiguous when a file has same-named symbols (methods on
         # different classes, overloads).
@@ -320,14 +386,23 @@ class DB:
             (file_id,),
         ).fetchall()
         key_to_id = {(r[1], r[2], r[3], r[4]): r[0] for r in sym_rows}
+        by_name: dict[str, list[int]] = {}
+        for sid, name, *_ in sym_rows:
+            by_name.setdefault(name, []).append(sid)
         rows = []
         seen_sids: set[int] = set()
         for s in symbols:
             k = (s["name"], s.get("kind", ""), s["qualified_name"], s["start_line"])
             sid = key_to_id.get(k)
-            if sid is None and len(sym_rows) == len(symbols):
-                sid = sym_rows[0][0]
-                sym_rows = sym_rows[1:]
+            if sid is None:
+                # the start_line moved between parse and insert: fall back to
+                # an *unambiguous* name match. Rowids are never paired by
+                # position -- a shifted list would attach a doc/signature to
+                # the wrong symbol and search would then report it at a line
+                # that does not contain it.
+                named = by_name.get(s["name"], [])
+                if len(named) == 1:
+                    sid = named[0]
             if sid is None:
                 continue
             # key_to_id collapses duplicate (name, kind, qualified_name,
@@ -349,15 +424,22 @@ class DB:
             )
         if not rows:
             return
-        ids = {r[0] for r in rows}
-        ph = ",".join("?" * len(ids))
-        self.conn.execute(f"DELETE FROM fts_symbols WHERE rowid IN ({ph})", list(ids))
         self.conn.executemany(
             "INSERT INTO fts_symbols "
             "(rowid, name, qualified_name, doc, kind, signature, file_path) "
             "VALUES (?,?,?,?,?,?,?)",
             rows,
         )
+
+    def clear_fts(self) -> None:
+        """Drop the whole FTS index.
+
+        Used when the index is rebuilt from scratch: per-file deletes cannot
+        remove rows leaked by an older build, and such a stale rowid would
+        collide with the ids the rebuild is about to assign (FTS5 rejects a
+        duplicate rowid with "constraint failed").
+        """
+        self.conn.execute("DELETE FROM fts_symbols")
 
     def _fts_aligned(self) -> bool:
         """True when fts rowids match symbols ids (at least one hit)."""
@@ -392,19 +474,23 @@ class DB:
     # ---------------- resolution ----------------
 
     def resolve_single_name(self, name: str) -> list[int]:
-        return [
-            r[0]
-            for r in self.conn.execute(
-                "SELECT id FROM symbols WHERE name=? ORDER BY file_id LIMIT 30", (name,)
-            )
-        ]
+        """Symbols matching a call/inherit target name.
 
-    def resolve_qualified(self, qname: str) -> list[int]:
+        ``module`` symbols are excluded: every file has one (named after its
+        stem) to carry import-time calls, but a module is imported, never
+        called, so a bare ``parse(...)`` must not resolve to ``parse.js``.
+
+        The limit is a safety valve for pathological names (``get``/``set`` in
+        a large repo); it is high enough that the candidate set is not silently
+        truncated in normal projects, which would make a multi-candidate
+        lookup look like a unique one.
+        """
         return [
             r[0]
             for r in self.conn.execute(
-                "SELECT id FROM symbols WHERE qualified_name=? OR qualified_name LIKE ? LIMIT 30",
-                (qname, qname + "%"),
+                "SELECT id FROM symbols WHERE name=? AND kind <> 'module' "
+                "ORDER BY file_id LIMIT 100",
+                (name,),
             )
         ]
 

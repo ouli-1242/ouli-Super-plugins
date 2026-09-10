@@ -258,6 +258,7 @@ def test_optional_root_param(toolbox):
         assert res["count"] == 1
         assert res["results"][0]["symbol"] == "hello"
     finally:
+        toolbox.close()  # release the sub-root's sqlite handles before deleting
         _rmtree(other)
 
     back = toolbox.code_search("login")
@@ -295,6 +296,7 @@ def login():
         # default root unchanged
         assert toolbox.find_callers("login")["root"] == str(WORK)
     finally:
+        toolbox.close()  # release the sub-root's sqlite handles before deleting
         _rmtree(other)
 
 
@@ -307,7 +309,7 @@ def test_optional_root_invalid(toolbox):
 
 
 def test_activate_project(toolbox):
-    """Serena-style session activation: switch default root, then tools run against it."""
+    """Session activation: switch the default root, then tools run against it."""
     other = WORK.parent / "activated_work"
     write(other / "main.py", "def activated_fn():\n    pass\n")
     try:
@@ -334,6 +336,7 @@ def test_activate_project(toolbox):
         assert back["ok"] and back["active_root"] == str(WORK)
         assert toolbox.code_search("login")["root"] == str(WORK)
     finally:
+        toolbox.close()  # release the sub-root's sqlite handles before deleting
         _rmtree(other)
 
 
