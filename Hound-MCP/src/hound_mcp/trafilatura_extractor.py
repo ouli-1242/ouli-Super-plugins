@@ -1,0 +1,353 @@
+"""Trafilatura-based content extraction:
+
+Trafilatura excels at extracting the main article content from news/blog pages,
+stripping navigation, footers, sidebars, cookie banners, and other noise.
+It also extracts metadata (title, author, date, url).
+
+Extraction chain (robust fallback):
+1. Try requested format (markdown/text/article/structured)
+2. If empty, try trafilatura.extract() with markdown output (different heuristics)
+3. If still empty, try trafilatura.bare_extraction() for metadata
+4. If all Trafilatura fails, fall back to markdownify (HTML->markdown) or raw text
+"""
+import json
+import logging
+import re
+from typing import Optional
+
+import trafilatura
+from lxml.etree import tostring
+from lxml.html import fromstring as html_fromstring
+
+logger = logging.getLogger("hound_mcp.trafilatura_extractor")
+
+
+def _is_probably_binary(data: bytes) -> bool:
+    """Check if data looks like binary content (PDF, image, etc.) rather than text."""
+    if not data:
+        return False
+    printable = sum(1 for b in data if 32 <= b <= 126 or b in (9, 10, 13))
+    return (printable / len(data)) < 0.1
+
+
+def _get_html_from_page(page) -> str | None:
+    """Extract raw HTML string from a Response object."""
+    if hasattr(page, 'body') and page.body:
+        html_bytes = page.body
+        return html_bytes.decode(page.encoding or 'utf-8', errors='replace')
+    elif hasattr(page, 'html_content') and page.html_content:
+        return page.html_content
+    else:
+        # Fallback: serialize the lxml tree
+        root = getattr(page, '_root', None) or getattr(page, 'root', None)
+        if root is not None:
+            return tostring(root, encoding='unicode')
+    return None
+
+
+def _extract_html_title(html: str) -> str:
+    """Extract the <title> tag content from HTML as a metadata fallback."""
+    try:
+        tree = html_fromstring(html)
+        title_el = tree.find(".//title")
+        if title_el is not None and title_el.text:
+            title = title_el.text.strip()
+            # Clean up common suffixes like " - Wikipedia", " | BBC News", etc.
+            # but only if the remaining title is still meaningful
+            return title
+    except Exception:
+        pass
+    # Regex fallback
+    match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def _trafilatura_markdown(html: str, url: str = "") -> str | None:
+    """Best-effort markdown extraction using trafilatura.extract().
+
+    Strategy: trafilatura identifies main content (filtering nav/ads), then
+    markdownify converts to markdown preserving [text](url) links. This hybrid
+    gives trafilatura's content quality + markdownify's link preservation.
+    """
+    # First: try trafilatura's native markdown (fast, good content filtering)
+    result = trafilatura.extract(
+        html, url=url,
+        include_comments=False, include_tables=True,
+        include_links=True,
+        output_format="markdown",
+    )
+    # If trafilatura produced content WITH links, use it directly
+    if result and "](" in result:
+        return result
+    # If trafilatura produced content but WITHOUT links, try markdownify
+    # on the main content region to preserve link references.
+    if result:
+        try:
+            from markdownify import markdownify as _md
+            import re as _re
+            # Strip nav/header/footer/aside/script/style before markdownify
+            # to avoid navigation link noise.
+            _strip_re = _re.compile(
+                r'<(nav|header|footer|aside|script|style|noscript)\b[^>]*>.*?</\1>',
+                _re.IGNORECASE | _re.DOTALL,
+            )
+            cleaned = _strip_re.sub('', html)
+            md_with_links = _md(cleaned, heading_style="ATX", strip=['img'])
+            # Only use markdownify version if it has links and isn't too bloated
+            # (max 3x the trafilatura text length to avoid nav noise).
+            if "](" in md_with_links and len(md_with_links) < len(result) * 3:
+                return md_with_links.strip()
+        except Exception:
+            pass
+        return result
+    return None
+
+
+def _trafilatura_article(html: str, url: str = "") -> dict | None:
+    """Extract article as dict using bare_extraction.
+    Falls back to HTML <title> tag if Trafilatura can't find a title.
+    Returns None if extraction fails.
+    """
+    result = trafilatura.bare_extraction(
+        html, url=url,
+        include_comments=False, include_tables=True,
+    )
+    if result is None:
+        return None
+
+    title = getattr(result, "title", "") or ""
+    # Fallback: try HTML <title> if Trafilatura couldn't find one
+    if not title:
+        title = _extract_html_title(html)
+
+    return {
+        "title": title,
+        "author": getattr(result, "author", "") or "",
+        "date": getattr(result, "date", "") or "",
+        "body": getattr(result, "text", "") or "",
+        "description": getattr(result, "description", "") or "",
+        "url": getattr(result, "url", "") or url,
+        "categories": getattr(result, "categories", None) or [],
+        "tags": getattr(result, "tags", None) or [],
+    }
+
+
+def _trafilatura_structured(html: str, url: str = "") -> dict | None:
+    """Extract structured article data with metadata."""
+    article = _trafilatura_article(html, url)
+    if article is None:
+        return None
+
+    # Enrich with trafilatura metadata
+    try:
+        metadata = trafilatura.metadata(html, url=url) if html else None
+        if metadata:
+            article["sitename"] = getattr(metadata, "sitename", "")
+            # Don't overwrite article's own categories/tags if they exist
+            if not article["categories"]:
+                article["categories"] = getattr(metadata, "categories", []) or []
+            if not article["tags"]:
+                article["tags"] = getattr(metadata, "tags", []) or []
+    except Exception as e:
+        logger.debug(f"Metadata extraction failed: {e}")
+
+    return article
+
+
+def _extract_type(html: str, url: str, extraction_type: str) -> str | None:
+    """Extract content in the requested format with robust fallback chain.
+
+    For 'article' and 'structured': tries bare_extraction first, then
+    falls back to extract() markdown and wraps it in the expected format.
+    For 'markdown' and 'text': tries extract() first, then bare_extraction.
+    """
+    if extraction_type == "markdown":
+        # Primary: trafilatura.extract() (best for markdown)
+        result = _trafilatura_markdown(html, url)
+        if result:
+            return result
+        # Fallback: bare_extraction text wrapped in heading
+        article = _trafilatura_article(html, url)
+        if article and article["body"]:
+            title = article.get("title", "")
+            return f"# {title}\n\n{article['body']}" if title else article["body"]
+        return None
+
+    elif extraction_type == "text":
+        # Primary: bare_extraction for plain text
+        article = _trafilatura_article(html, url)
+        if article and article["body"]:
+            return article["body"]
+        # Fallback: markdown then strip
+        md = _trafilatura_markdown(html, url)
+        return md if md else None
+
+    elif extraction_type == "article":
+        # Primary: bare_extraction as JSON
+        article = _trafilatura_article(html, url)
+        if article and article["body"]:
+            return json.dumps(article, indent=2)
+        # Fallback: markdown extraction, wrap as article JSON
+        md = _trafilatura_markdown(html, url)
+        if md:
+            # Try to get at least a title from HTML <title> tag
+            html_title = _extract_html_title(html)
+            return json.dumps({
+                "title": html_title, "author": "", "date": "",
+                "body": md, "description": "", "url": url,
+                "categories": [], "tags": [],
+            }, indent=2)
+        return None
+
+    elif extraction_type == "structured":
+        # Primary: structured extraction with metadata
+        data = _trafilatura_structured(html, url)
+        if data and data.get("body"):
+            return json.dumps(data, indent=2)
+        # Fallback: markdown extraction, wrap as structured JSON
+        md = _trafilatura_markdown(html, url)
+        if md:
+            # Try to get title from bare_extraction or HTML <title>
+            article = _trafilatura_article(html, url)
+            title = article.get("title", "") if article else ""
+            if not title:
+                title = _extract_html_title(html)
+            return json.dumps({
+                "title": title, "author": "", "date": "",
+                "body": md, "description": "", "url": url,
+                "sitename": "", "categories": [], "tags": [],
+            }, indent=2)
+        return None
+
+    else:  # html or unknown: Trafilatura doesn't do HTML
+        return None
+
+
+def _fallback_extract(page, extraction_type: str, css_selector: Optional[str]) -> list[str]:
+    """Fallback extraction: markdownify for markdown/html, raw text for text type.
+
+    Replaces scrapling's Convertor._extract_content with direct markdownify
+    and lxml usage. No scrapling dependency.
+    """
+    # Get raw HTML
+    html = getattr(page, 'content', '') or ''
+    if not html and getattr(page, 'body', None):
+        html = page.body.decode(
+            getattr(page, 'encoding', None) or 'utf-8', errors='replace'
+        )
+    if not html:
+        return [""]
+
+    # CSS selector narrowing
+    if css_selector:
+        try:
+            from lxml import html as lxml_html
+            from lxml.etree import tostring
+            tree = lxml_html.fromstring(html)
+            from lxml.cssselect import CSSSelector
+            sel = CSSSelector(css_selector)
+            matches = sel(tree)
+            if matches:
+                html = '\n'.join(
+                    tostring(m, encoding='unicode') for m in matches
+                )
+        except Exception as e:
+            logger.debug(f"CSS selector '{css_selector}' failed: {e}")
+
+    # Map extended types to what we can handle
+    if extraction_type == "html":
+        return [html]
+    if extraction_type == "text":
+        import re
+        # Strip tags for plain text
+        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<noscript[^>]*>.*?</noscript>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return [text] if text else [html]
+    # markdown, article, structured: use markdownify
+    try:
+        from markdownify import markdownify
+        result = markdownify(html)
+        logger.info(f"Falling back to markdownify extraction (type={extraction_type})")
+        return [result] if result else [html]
+    except ImportError:
+        # markdownify not installed: return raw HTML
+        return [html]
+
+
+def extract_content_from_html(html: str, url: str = "", extraction_type: str = "markdown") -> str | None:
+    """Extract content from a raw HTML string (used by smart_crawl, which fetches
+    pages as html once and derives both links and markdown from the same body)."""
+    return _extract_type(html, url, extraction_type)
+
+
+def extract_html_title(html: str) -> str:
+    """Public wrapper for the HTML <title> fallback extractor."""
+    return _extract_html_title(html)
+
+
+def extract_with_trafilatura(
+    page,  # Response object (hound_mcp.fetcher.Response or compatible)
+    extraction_type: str = "markdown",
+    css_selector: Optional[str] = None,
+) -> list[str]:
+    """Use Trafilatura on a Response object.
+
+    Robust multi-stage extraction chain to maximize content quality.
+    Falls back to markdownify only if ALL Trafilatura methods fail.
+    """
+    try:
+        # Check for binary content before decoding
+        raw = getattr(page, 'body', None) or getattr(page, 'content', None)
+        if raw:
+            raw_bytes = raw if isinstance(raw, bytes) else str(raw).encode('latin-1', errors='replace')
+            if b'\x00' in raw_bytes[:1000] or _is_probably_binary(raw_bytes[:4096]):
+                return [f"[Binary content detected. Cannot extract text from this URL. Content type may be PDF, image, or other non-text format. Size: {len(raw_bytes):,} bytes]"]
+
+        html = _get_html_from_page(page)
+        if html is None:
+            logger.warning("Cannot extract HTML from page object, falling back to markdownify")
+            return _fallback_extract(page, extraction_type, css_selector)
+
+        page_url = page.url if hasattr(page, 'url') else ""
+
+        # If css_selector specified, narrow the HTML first
+        if css_selector:
+            selected = page.css(css_selector) if hasattr(page, 'css') else [page]
+            parts = []
+            for el in selected:
+                try:
+                    el_html = tostring(el._root if hasattr(el, '_root') else el, encoding='unicode')
+                    part = _extract_type(el_html, page_url, extraction_type)
+                    if part:
+                        parts.append(part)
+                except Exception:
+                    continue
+            if parts:
+                return parts
+            # CSS selector found nothing: try full page instead
+            logger.info(f"CSS selector '{css_selector}' found nothing, trying full page extraction")
+
+        result = _extract_type(html, page_url, extraction_type)
+        if result:
+            return [result]
+
+        # Even _extract_type returned None: try one more time with markdown
+        # regardless of requested type, just to get SOME clean content
+        if extraction_type != "markdown":
+            md = _trafilatura_markdown(html, page_url)
+            if md:
+                logger.info(f"Requested type '{extraction_type}' failed, returning markdown fallback")
+                return [md]
+
+        # Total failure: fall back to markdownify
+        logger.warning(f"All Trafilatura methods failed for {page_url}, falling back to markdownify")
+        return _fallback_extract(page, extraction_type, css_selector)
+
+    except Exception as e:
+        logger.warning(f"Trafilatura extraction crashed: {e}, falling back to markdownify")
+        return _fallback_extract(page, extraction_type, css_selector)

@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment/Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# Project caches (runtime)
+.hound_mcp_cache/
+.hound_cache/
+*.log
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- personal / agent scratch (never commit) ---
+# These are local-only planning, status, and AI-agent working files. They are
+# not for the public audience and stay out of the repo.
+STATUS.md
+PROJECT.md
+PLAN.md
+TODO.md
+ROADMAP-personal.md
+research/
+notes/
+scratch/
+.pi/
+.claude/
+.cursor/
+keys.md
+hound-mcp-bug-report.md
+
+# Local-only temp helper scripts (one-off fixes, release-note drafts).
+/.fix_*.py
+/.v7*.py
+/.serl*.py
+/.engine_surgery.py
+/.drop_*.py
+/.soften_*.py
+/.release_notes*.md
+V7-SEARCH-PLAN.md
+V10_PLAN.md
+docs/hound-demo.mp4
+pi-extension/.npmrc
+node_modules/
+package-lock.json

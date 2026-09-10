@@ -1,0 +1,9 @@
+{
+  "name": "hound-mcp",
+  "version": "11.1.6",
+  "private": true,
+  "description": "Hound MCP - keyless web research for AI agents. Free, no API key.",
+  "pi": {
+    "extensions": ["./pi-extension/extensions/hound.ts"]
+  }
+}

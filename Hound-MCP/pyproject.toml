@@ -1,0 +1,92 @@
+[project]
+name = "hound-mcp"
+version = "99.0.0"
+description = "Web research for AI agents. Fetch any page with anti-bot bypass plus web search. $0 forever. No scrapling dependency: hound uses primp + patchright directly. Graceful degradation when browser deps are unavailable (HTTP-only mode on Termux/Android). Token-optimized tool definitions, polished cross-platform CLI, brick-proof self-update with hound doctor + rollback."
+readme = "README.md"
+authors = [{name = "ouli-1242", email = "ouli1242@gmail.com"}]
+requires-python = ">=3.11"
+dependencies = [
+    # hound uses primp for HTTP TLS impersonation and patchright for browser.
+    # No scrapling dependency. Core deps all have universal wheels.
+    # Browser deps (patchright, playwright, browserforge) are in [all] extra.
+    # When browser deps are missing, hound runs in HTTP-only mode
+    # (see _scrapling_available + _fallback_http_get in server.py).
+    # Core deps:
+    "mcp>=2.0,<3",
+    "pydantic>=2.0",
+    "trafilatura>=2.0.0",
+    "aiosqlite>=0.20.0",
+    # metasearch backends (vendored ddgs engine layer, MIT) - keyless search:
+    "primp>=1.0",
+    "httpx[http2,socks]>=0.27",
+    "fake-useragent>=2.0",
+    "lxml>=5.0",
+    "cssselect>=1.2",
+    # Content extraction (HTML->markdown fallback):
+    "markdownify>=1.2.0",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
+]
+keywords = ["mcp", "web-scraping", "cloudflare-bypass", "anti-bot", "content-extraction", "ai-agent", "mcp-server"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-mock>=3.14",
+]
+all = [
+    # Browser deps (patchright for anti-detect browser, playwright for JS
+    # rendering, browserforge for fingerprint generation). These may not
+    # install on all platforms (e.g. playwright has no aarch64/Termux wheels).
+    # When missing, hound runs in HTTP-only mode.
+    "patchright>=1.50",
+    "playwright>=1.50",
+    "browserforge>=1.2.4",
+    # PDF + OCR deps:
+    "requests>=2.31",
+    "pdfplumber>=0.11.0",
+    "pypdfium2>=4.30",
+    "rapidocr>=3.0",
+    "onnxruntime>=1.16",
+    "tokenizers>=0.20",
+    # Local file parsing (parse tool):
+    "python-docx>=1.0",
+    "openpyxl>=3.1",
+]
+
+[project.urls]
+Repository = "https://github.com/ouli-1242/hound-mcp"
+Issues = "https://github.com/ouli-1242/hound-mcp/issues"
+
+[project.scripts]
+hound = "hound_mcp.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hound_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Always import hound_mcp from src/, never from a built wheel installed in
+# .venv. The dev venv ships a BUILT wheel (not editable); without this, pytest
+# silently runs the stale installed copy and src/ edits go untested. This has
+# bitten the project 4+ times. pythonpath (pytest 7+) wins over install.
+pythonpath = ["src"]
+addopts = ["-m", "not e2e"]
+markers = [
+    "e2e: end-to-end tests that spawn a real hound.exe subprocess. Skip by default in CI; run manually with `pytest -m e2e`.",
+]

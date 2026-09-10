@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepeye-mcp"
+version = "0.2.0"
+description = "DeepEye - 为纯文本大模型提供视觉能力的 MCP Server（图像描述 / OCR / 视觉问答）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "ouli-1242", email = "ouli1242@gmail.com" },
+]
+keywords = ["mcp", "vision", "ocr", "openai", "llm", "model-context-protocol", "gemini", "deepseek", "visual-question-answering", "image-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp>=2.0.0",
+    "httpx>=0.27.0",
+    "pydantic-settings>=2.0.0",
+    "Pillow>=10.0.0",
+    "loguru>=0.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ouli-1242/deepeye-mcp"
+Repository = "https://github.com/ouli-1242/deepeye-mcp"
+Issues = "https://github.com/ouli-1242/deepeye-mcp/issues"
+Changelog = "https://github.com/ouli-1242/deepeye-mcp/releases"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+deepeye = "deepeye_mcp.server:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

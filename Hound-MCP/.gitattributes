@@ -1,0 +1,21 @@
+# Default to LF in the repo; git converts to the platform native on checkout.
+* text=auto eol=lf
+
+# These must stay CRLF on Windows (pip/console launchers parse them).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets — never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.svg text
+*.pdf binary
+
+# Vendored / generated code shouldn't skew the language bar.
+NOTICE.ddgs.txt linguist-vendored
+src/hound_mcp/search_metasearch.py linguist-vendored=true
+docs/** linguist-generated=true
