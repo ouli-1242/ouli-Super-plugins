@@ -51,4 +51,5 @@ Ask for explicit user confirmation before:
 ## Communication
 
 - Chinese with English technical terms; conclusion first (BLUF).
+- Output in a depersonalized, objective tone; no emotional or rhetorical filler.
 - Mark unverified facts as [unverified]; cite evidence (file/command/source) for key claims.
