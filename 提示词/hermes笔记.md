@@ -27,4 +27,4 @@ Defines Hermes's default operating procedures.
 
 ## Environment
 
-- OS: Windows 11 Pro; shell: PowerShell 7 (pwsh).
+- OS: Windows 11 Pro; shells: PowerShell 7 (pwsh) and Bash; prefer pwsh unless the project or toolchain requires Bash.

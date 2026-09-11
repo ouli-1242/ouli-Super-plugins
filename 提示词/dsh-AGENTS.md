@@ -2,7 +2,7 @@
 
 ## Environment
 
-- Windows 11 Pro; shell: PowerShell 7 (pwsh).
+- Windows 11 Pro; shells: PowerShell 7 (pwsh) and Bash; prefer pwsh unless the project or toolchain requires Bash.
 
 ## DSH Context
 
