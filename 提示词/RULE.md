@@ -45,7 +45,3 @@ Ask for explicit user confirmation before:
 
 - Chinese with English technical terms; conclusion first (BLUF).
 - Mark unverified facts as [unverified]; cite evidence (file/command/source) for key claims.
-
-## Lessons Learned
-
-<!-- 每次真实翻车，记一条可检查规则，长期只增不减 -->
