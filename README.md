@@ -8,8 +8,8 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 
 | 子目录 | 插件名 | 版本 | 说明 |
 |---|---|---|---|
-| [`SuperWork/`](SuperWork/) | `superwork` | 1.5.0 | 全量精选 skill 组合包：TDD、debugging、code review、grilling、domain-modeling、verification 等 16 个 skill |
-| [`SuperLite/`](SuperLite/) | `superlite` | 1.0.0 | 轻量 skill 包：TDD、debugging、review、verification + 通用 writing、research、grilling、handoff |
+| [`SuperWork/`](SuperWork/) | `superwork` | 2.0.0 | 全量精选 skill 组合包（17 个 skill）：TDD/debugging/code review/grilling/domain-modeling/verification + spec→plan→execute 全链条 + 文档导航 spine（docs/ 中文约定） |
+| [`SuperLite/`](SuperLite/) | `superlite` | 2.0.0 | 轻量 skill 包（10 个 skill）：TDD/debugging/review/verification + writing/research/grilling/handoff/doc-index；固定成本约 SuperWork 的 53% |
 
 ### MCP Server（Python 包，同步自各自独立仓库）
 
@@ -44,7 +44,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 ## 说明
 
 - **提示词配置**：`提示词/` 为各客户端全局规则 / 提示词源文件，按需复制到对应客户端的配置路径（如 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.dsh/AGENTS.md`）。
-- **Skill 插件**：`SuperWork/`、`SuperLite/` 各是完整独立的 Claude Code 插件（含 `.claude-plugin/` 与 `marketplace.json`，`source: "./"`）。如需直接安装，请分别单独建仓后再执行 `claude plugin install <repo-url>`。
+- **Skill 插件**：`SuperWork/`、`SuperLite/` 各是独立 skill 包（v2.0.0 起不再带平台清单 `.claude-plugin/` 等）。用法：把 `skills/` 内容复制进各 agent 自己的 skills 文件夹（DSH/Claude Code/Codex/Cursor/opencode 均自动扫描 SKILL.md）。如需走 `claude plugin install` 流程，自行补回对应 `plugin.json` 即可。
 - **MCP Server**：`FastGraph-MCP/`、`Hound-MCP/`、`DeepEye-MCP/` 为 Python 包源码，本仓库为其镜像收录，开发与发布以各自独立仓库为准。安装方式见各子目录 README（`pip install .` 或 `pip install -e .`）。其中 **`Hound-MCP/` 是 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch) 的二创**、**`DeepEye-MCP/` 是 [Favio8/deepeye](https://github.com/Favio8/deepeye) 的二创**（上游均为 MIT，原始版权归各自原作者；完整声明见各子目录 `README.md` 的「致谢」段与 `LICENSE`）。
 - **Agent Skill**：`chaoxing-tasker/` 为单个 `SKILL.md`，放入对应客户端的 skills 目录即可使用；`find-extensions/` 为 `SKILL.md` + `references/`（含 `search.mjs`，需 Node 运行），整体放入 skills 目录即可使用。
 - 各子目录保留其原有的 README、依赖声明、忽略规则与第三方许可说明（如 `Hound-MCP/LICENSE`、`Hound-MCP/NOTICE.ddgs.txt`），使用前请一并阅读。
