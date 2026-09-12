@@ -79,11 +79,11 @@ if (Test-Path $claudeManifest) {
     }
 }
 
-# --- All JSON manifests parse, and version fields agree ---
+# --- JSON manifests are optional (manual skills-copy model). When present, they must parse and versions agree. ---
 $versions = @()
 foreach ($m in @('.claude-plugin\plugin.json', '.claude-plugin\marketplace.json', '.codex-plugin\plugin.json', '.cursor-plugin\plugin.json')) {
     $p = Join-Path $Root $m
-    if (-not (Test-Path $p)) { $fail += "MISSING-MANIFEST: $m"; continue }
+    if (-not (Test-Path $p)) { continue }
     try {
         $j = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($j.version) { $versions += $j.version }

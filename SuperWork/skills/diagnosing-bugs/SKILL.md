@@ -7,7 +7,7 @@ description: Use when a bug resists a first fix attempt, or the user reports som
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read `CONTEXT.md` (if it exists) for a clear mental model of the relevant modules, and check ADRs in the area you're touching.
+When exploring the codebase, read the glossary section of `技术依据.md` (if it exists) for a clear mental model of the relevant modules, and check `决策记录.md` for decisions in the area you're touching.
 
 ## Redact
 
@@ -95,13 +95,7 @@ If a correct seam exists:
 STOP. Count the fix attempts. If fewer than 3, return to Phase 1 and re-analyse
 with the new information. **If 3+ fixes have failed, stop fixing and question
 the architecture** — do not attempt fix #4 without an architectural discussion
-with the user. Patterns indicating an architectural problem:
-
-- Each fix reveals new shared state / coupling in a different place
-- Fixes keep requiring "massive refactoring" to implement
-- Each fix creates new symptoms elsewhere
-
-This is not a failed hypothesis — this is a wrong architecture. Discuss whether to refactor the architecture instead of continuing to fix symptoms.
+with the user. Patterns that signal a wrong architecture (not a failed hypothesis) and how to handle them: `references/architectural-problems.md`.
 
 ## Phase 6 — Cleanup + post-mortem
 

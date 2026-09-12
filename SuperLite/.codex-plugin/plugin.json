@@ -1,6 +1,0 @@
-{
-  "name": "superlite",
-  "version": "1.0.0",
-  "description": "Ouli's lightweight skill pack for daily work and simple projects - core coding disciplines (TDD, debugging, review, verification) plus general-purpose writing, research, grilling and handoff",
-  "skills": "./skills"
-}

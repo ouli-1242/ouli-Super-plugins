@@ -106,6 +106,16 @@ Skip any step = lying, not verifying
 ❌ Trust agent report
 ```
 
+## Red-Team Self-Check (before "done")
+
+Once verification passes, before any completion claim, adopt the adversary's stance and answer **out loud**:
+
+- **How could this be wrong?** — what assumption did the green test NOT cover? (untested branch, mocked dependency, fixture that doesn't match real input)
+- **What did I NOT verify?** — name it explicitly; it goes to the log's 诚实边界 section.
+- **What would break in production?** — edge cases the test suite doesn't model.
+
+If you cannot answer these, you haven't verified — you've checked a box. An honest "I don't know" goes to the log, not buried. If this verification closes a milestone, hand the 诚实边界 list to executing-plans to write a `docs/日志/` entry (or write one directly when not running inside a plan).
+
 ## When To Apply
 
 **ALWAYS before:**

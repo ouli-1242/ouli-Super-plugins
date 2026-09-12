@@ -110,6 +110,10 @@ Skip any step = lying, not verifying
 
 The Iron Law applies to claims about ANY work, not just code: re-read the document against its stated purpose and outline; re-check every number in the analysis against its source; confirm the file exists at the path you claim.
 
+## Red-Team Self-Check (before declaring done)
+
+Once verification passes, before any completion claim, answer **out loud**: how could this be wrong? (untested branch, mocked dependency, a number not re-checked against its source). Name what you did NOT verify — it goes into the deliverable's or handoff's 诚实边界, not buried. If you can't answer, you checked a box, not verified.
+
 ## When To Apply
 
 **ALWAYS before:**

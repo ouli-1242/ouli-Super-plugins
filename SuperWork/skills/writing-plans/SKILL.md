@@ -15,7 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree (SuperWork does not manage worktrees; only mention this when the user already has one set up).
 
-**Save plans to:** `docs/superwork/plans/YYYY-MM-DD-<feature-name>.md`
+**Save plans to:** `docs/计划/YYYY-MM-DD-<feature-name>.md` — and register it in 文档导航 (per doc-index). If `docs/文档导航.md` is missing, create it via the doc-index skill first.
 - (User preferences for plan location override this default)
 
 ## Scope Check
@@ -35,21 +35,11 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## Task Right-Sizing
 
-A task is the smallest unit that carries its own test cycle and is worth a
-fresh reviewer's gate. When drawing task boundaries: fold setup,
-configuration, scaffolding, and documentation steps into the task whose
-deliverable needs them; split only where a reviewer could meaningfully
-reject one task while approving its neighbor. Each task ends with an
-independently testable deliverable.
+A task is the smallest unit that carries its own test cycle and is worth a fresh reviewer's gate. When drawing task boundaries: fold setup, configuration, scaffolding, and documentation steps into the task whose deliverable needs them; split only where a reviewer could meaningfully reject one task while approving its neighbor. Each task ends with an independently testable deliverable.
 
 ## Bite-Sized Task Granularity
 
-**Each step is one action (2-5 minutes):**
-- "Write the failing test" - step
-- "Run it to make sure it fails" - step
-- "Implement the minimal code to make the test pass" - step
-- "Run the tests and make sure they pass" - step
-- "Commit" - step
+**Each step is one action (2-5 minutes):** "Write the failing test" / "Run it to see it fail" / "Implement minimal code" / "Run tests to see them pass" / "Commit".
 
 ## Plan Document Header
 
@@ -60,77 +50,40 @@ independently testable deliverable.
 
 > **Status:** draft — set to `approved` once the user approves the plan, and
 > `completed` once every task below is checked off. Keep it as the first
-> content line under the title so it stays greppable (`grep -l "Status: completed" docs/superwork/plans/`).
+> content line under the title so it stays greppable (`grep -l "Status: completed" docs/计划/`).
 
 > Steps use checkbox (`- [ ]`) syntax for tracking; check each box off as it completes.
 
 **Goal:** [One sentence describing what this builds]
-
 **Architecture:** [2-3 sentences about approach]
-
 **Tech Stack:** [Key technologies/libraries]
-
-**Spec:** [path to the spec/design doc this plan implements — the plan
-argues from the spec, so the spec travels with it; executors read both]
+**Spec:** [path to the spec/design doc this plan implements — executors read both]
 
 ## Global Constraints
 
-[The spec's project-wide requirements — version floors, dependency limits,
-naming and copy rules, platform requirements — one line each, with exact
-values copied verbatim from the spec. Every task's requirements implicitly
-include this section.]
+[The spec's project-wide requirements — version floors, dependency limits, naming/copy rules, platform requirements — one line each, verbatim from the spec. Every task implicitly includes this section.]
 
 ---
 ```
 
 ## Task Structure
 
+Each task follows this skeleton (full worked example with real code: `references/task-example.md`):
+
 ````markdown
 ### Task N: [Component Name]
 
-**Files:**
-- Create: `exact/path/to/file.py`
-- Modify: `exact/path/to/existing.py:123-145`
-- Test: `tests/exact/path/to/test.py`
+**Files:** Create / Modify (path:lines) / Test paths.
+**Interfaces:** Consumes (from earlier tasks — exact signatures) · Produces (what later tasks rely on — names, param & return types; an implementer sees only their own task, so this is how they learn neighboring names/types).
 
-**Interfaces:**
-- Consumes: [what this task uses from earlier tasks — exact signatures]
-- Produces: [what later tasks rely on — exact function names, parameter
-  and return types. A task's implementer sees only their own task; this
-  block is how they learn the names and types neighboring tasks use.]
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_specific_behavior():
-    result = function(input)
-    assert result == expected
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: FAIL with "function not defined"
-
-- [ ] **Step 3: Write minimal implementation**
-
-```python
-def function(input):
-    return expected
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/path/test.py src/path/file.py
-git commit -m "feat: add specific feature"
-```
+- [ ] **Step 1: Write the failing test** — actual test code
+- [ ] **Step 2: Run test to verify it fails** — command + expected failure
+- [ ] **Step 3: Write minimal implementation** — actual code
+- [ ] **Step 4: Run test to verify it passes** — command + expected pass
+- [ ] **Step 5: Commit** — actual git commands
 ````
+
+Steps are one action (2-5 min) each; every code step shows actual code — no placeholders.
 
 ## No Placeholders
 
@@ -144,21 +97,19 @@ Every step must contain the actual content an engineer needs. These are **plan f
 
 ## Self-Review
 
-After writing the complete plan, look at the spec with fresh eyes and check the plan against it. This is a checklist you run yourself — not a subagent dispatch.
+After writing the complete plan, look at the spec with fresh eyes and check the plan against it (a self-checklist, not a subagent dispatch):
 
-**1. Spec coverage:** Skim each section/requirement in the spec. Can you point to a task that implements it? List any gaps.
+1. **Spec coverage:** can you point to a task for each spec requirement? List gaps.
+2. **Placeholder scan:** any of the "No Placeholders" patterns above? Fix them.
+3. **Type consistency:** do types/signatures/property names in later tasks match earlier ones? `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
 
-**2. Placeholder scan:** Search your plan for red flags — any of the patterns from the "No Placeholders" section above. Fix them.
-
-**3. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
-
-If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
+Fix issues inline; no re-review. If a spec requirement has no task, add it.
 
 ## Execution Handoff
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to `docs/superwork/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to `docs/计划/<filename>.md`. Two execution options:**
 
 **1. Inline Execution (recommended)** - Execute the tasks here in this session, one at a time, checking off each `- [ ]` box as it completes, pausing at checkpoints for your review. When every task is checked off, update the plan's `Status:` line to `completed`.
 
@@ -171,4 +122,4 @@ Either way, call the Skill tool with "executing-plans" — it is the execution d
 ## Execution Notes
 
 - Each task is implemented through the red-green loop the plan's steps already encode; `executing-plans` calls `tdd` per task at execution time.
-- After the last task, the execution skill calls the Skill tool twice: first with "code-review" to review the whole change, then with "verification-before-completion" before declaring done.
+- After the last task, the execution skill calls the Skill tool three times — "code-review", then "verification-before-completion", then "finishing-a-development-branch" — and writes a `docs/日志/` entry (per executing-plans' finish step).

@@ -2,9 +2,24 @@
 
 Ouli 的个人 skill 组合包（plugin）。从 [superpowers](https://github.com/obra/superpowers) 与
 [matt-skills](https://github.com/mattpocock/skills) 等流行 skill 库精选，共
-16 个 skill：11 个精选 + 5 个 SuperWork 自有（路由元 skill、计划执行、skill
-编写、分支收尾、冲突解决），基于全局 `AGENTS.md` 的原则组合，按需触发，
-不接管对话。
+17 个 skill：11 个精选 + 6 个 SuperWork 自有（路由元 skill、计划执行、skill
+编写、分支收尾、冲突解决、文档导航），基于全局 `AGENTS.md` 的
+原则组合，按需触发，不接管对话。
+
+## v2.0.0 仓库精简 + 中文文档约定重构
+
+两件事：
+
+**仓库精简**：删除平台清单（`.claude-plugin`/`.codex-plugin`/`.cursor-plugin`/`.opencode`）与人类参考副本 `AGENTS.md`/`CLAUDE.md`。用法改为**把 `skills/` 内容直接复制进各 agent 自己的 skills 文件夹**——agent 自动扫描 SKILL.md，清单只在"装插件"流程才需要，手动复制场景纯冗余。`scripts/validate.ps1` 的清单检查改为可选（缺失即跳过）。
+
+**中文文档约定重构**：产出路径从 `docs/superwork/specs|plans/` 与 `docs/adr/0001-*.md` 迁移为扁平中文目录，并补上真实项目验证过、原套件缺失的组织纪律：
+
+- 路径迁移：`docs/设计/`（spec）、`docs/计划/`、`docs/决策记录.md`（D-NNN 累积六段式，替代一文件一决策的 `docs/adr/`）、`docs/技术依据.md`（官方来源 + 术语表，替代 `CONTEXT.md`）。
+- 新增产物类型：`docs/日志/`（按日开发记录，原无）、`docs/审查/`（评审报告落盘，原只输出对话）、`docs/交接/`（入工作区，原写临时目录）、`docs/实验/`（经验数据，原无）、`docs/调研/`（Spike 可弃留痕，原无）。
+- 新增 spine：`docs/文档导航.md` 唯一索引门面 + 路径约定声明——产出 skill 落盘后在导航登记一行，无登记不算交付。
+- 新增 skill：`doc-index`（导航脚手架 + 落盘登记协议）。实验记录降为 `docs/实验/` 约定（六段式结构见 doc-index），无专属 skill。
+- 新增 2 无条件纪律：#4 产物落盘并登记文档导航；#5 诚实边界 + 偏离声明 + 红队自查。
+- 约定：命名必带主题不写纯日期、同日同类合并一份、草稿进 `.scratch/` 批准后迁入、每个横切关注点可有唯一权威文档（引用不复制）。
 
 ## v1.5.0 自洽性修复（全量深度审查）
 
@@ -111,13 +126,13 @@ skill 调用难、只会命中 brainstorming 的根因是：模型每轮只看�
 | 交付前验证                           | `code-review`（规范 + spec 双轴评审）                       | matt        |
 | 效率：会话/上下文不浪费              | `handoff` `research`                                        | matt        |
 
-## Skill 清单（16 个）
+## Skill 清单（17 个）
 
 ### 入口路由
 
 - `superwork` — 元 skill（v1.1.0）。任何对话/任务开始时触发：按生命周期
   阶段把任务路由到具体 skill，装载无条件纪律与红旗清单。是模型侧的
-  权威路由表（CLAUDE.md/AGENTS.md 只是人类参考副本）。
+  权威路由表。
 
 ### SuperWork 自有（从源库改造）
 
@@ -133,6 +148,12 @@ skill 调用难、只会命中 brainstorming 的根因是：模型每轮只看�
 - `resolving-merge-conflicts`（v1.3.0，matt）— merge/rebase 冲突五步纪律：
   找双方原始意图、能保则保、绝不发明行为、永不 abort、冲突暴露架构级
   不兼容时停下来找用户。
+
+### 文档导航（v2.0.0）
+
+- `doc-index`（v2.0.0）— 文档导航协议：`docs/文档导航.md` 是唯一索引门面 +
+  路径约定声明。产出 skill 落盘后在导航登记一行，无登记不算交付；缺失时本
+  skill 生成脚手架。
 
 ### 对齐与规划（开工前）
 
@@ -187,28 +208,26 @@ agent 不读 README。每次会话它会扫描 skills 并把每个 SKILL.md 的
 逻辑已内置于 `skills/superwork/SKILL.md` 元 skill——不要再往 README 或
 CLAUDE.md 里堆方法论（模型看不到它们）。
 
-## 安装状态
+## 安装
 
-各工具的安装方法：
+**把 `skills/` 内容直接复制进各 agent 自己的 skills 文件夹**——agent 自动扫描 SKILL.md，无需平台清单。
 
-| 工具        | 安装位置                                            | 安装命令/操作                                                                                                 |
-| ----------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| opencode    | `~/.config/opencode/plugins/SuperWork`              | 复制整个 SuperWork 目录到该位置（连同 `superwork.js` 到 `plugins/` 根），重启                                      |
-| Claude Code | `~/.claude/plugins/marketplaces/superwork`          | `claude plugin marketplace add ~/.claude/plugins/marketplaces/superwork` + `claude plugin install superwork@superwork` |
-| Codex CLI   | `~/.codex/plugins/superwork/`                       | 复制到该目录，`codex plugin add superwork@personal`                                                           |
-| Cursor      | `~/.cursor/plugins/local/superwork/`                | 复制 `.cursor-plugin/` 与 `skills/` 到该目录                                                                  |
+| 工具        | skills 目录                    | 操作                          |
+| ----------- | ------------------------------ | ----------------------------- |
+| DSH         | `~/.dsh/skills/`               | 复制 `skills/*` 子目录到此处  |
+| Claude Code | `~/.claude/skills/`            | 同上                          |
+| Codex CLI   | `~/.codex/skills/`             | 同上                          |
+| Cursor      | `~/.cursor/skills/`            | 同上                          |
+| opencode    | 见 opencode 自身的 skills 路径 | 同上                          |
 
-### 各工具接入形态
+> v2.0.0 前本仓库带各平台清单（`.claude-plugin/` 等），仅"装插件"流程需要；手动复制场景纯冗余，已删除。若要恢复"装插件"分发，重新加对应 `plugin.json` 即可。
+
+### 仓库结构
 
 ```
 SuperWork\
-├── .opencode\plugin\superwork.js      # opencode 插件（自动注册 skills 路径）
-├── .claude-plugin\plugin.json         # Claude Code 插件清单（skills 数组）
-├── .claude-plugin\marketplace.json    # Claude Code 本地 marketplace
-├── .codex-plugin\plugin.json          # Codex 插件清单（skills 指向 ./skills）
-├── .cursor-plugin\plugin.json         # Cursor 本地插件清单
-├── skills\                            # 16 个 skill（四个工具共用）
-├── scripts\validate.ps1               # 维护校验（升级前必跑）
+├── skills\                # 17 个 skill（各 agent 共用）
+├── scripts\validate.ps1   # 维护校验（升级前必跑）
 └── README.md
 ```
 
@@ -284,7 +303,7 @@ SuperWork\
 
 本地新增文件（源仓库没有）：`skills/superwork/`（元 skill）、
 `skills/brainstorming/references/`、`skills/diagnosing-bugs/references/`、
-`AGENTS.md` / `CLAUDE.md`（人类参考副本，内容一致）、`start-server.ps1`、
+`AGENTS.md` / `CLAUDE.md`（人类参考副本，v2.0.0 已删除）、`start-server.ps1`、
 `stop-server.ps1`、`hitl-loop.ps1`（Windows 原生 PowerShell 版，行为与
 `.sh` 等价）。
 

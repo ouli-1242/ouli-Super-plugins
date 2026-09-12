@@ -20,6 +20,10 @@ Before writing any deliverable, know **why it exists and who reads it**. If eith
 
 When the deliverable is a plan — trip, project, task breakdown, rollout — the outline IS the skeleton: goal → steps → order → what can fail. Confirm the goal before detailing steps; a detailed plan toward the wrong goal is waste with extra words.
 
+## Where durable deliverables live
+
+Save durable deliverables (plans, specs, reports) under `docs/` in the matching type dir and register them in `docs/文档导航.md` (per `doc-index`): plans → `docs/计划/`, specs/designs → `docs/设计/`, review reports → `docs/审查/`. Throwaway pieces (a quick email, a scratch note) stay in chat — don't pollute the index. If `docs/文档导航.md` is missing, create it via doc-index first.
+
 ## Anti-patterns
 
 - Writing before knowing the audience (same content, wrong reader = wrong document)

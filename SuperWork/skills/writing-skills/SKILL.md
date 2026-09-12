@@ -39,15 +39,7 @@ Agents see only `name + description` until they load the skill. The description 
 
 ### 1. Triggering conditions only — NEVER summarize the workflow
 
-**Critical:** when a description summarizes the skill's workflow, agents follow the description instead of reading the skill body. A description saying "code review between tasks" made an agent do ONE review even though the skill's flowchart required TWO. Changing it to pure triggering conditions fixed it. A workflow summary is a shortcut that makes the body documentation agents skip.
-
-```yaml
-# BAD: summarizes workflow — agents follow this instead of reading
-description: Use when executing plans - dispatches subagent per task with code review between tasks
-
-# GOOD: triggering conditions only
-description: Use when executing implementation plans with independent tasks
-```
+A description that summarizes the workflow makes agents follow the description instead of reading the body (a real case: "code review between tasks" → agent did ONE review though the flowchart required TWO; pure triggers fixed it). BAD/GOOD example: `references/sdo-example.md`.
 
 ### 2. Description rules
 
@@ -100,13 +92,7 @@ Skills that enforce discipline must resist rationalization. Agents find loophole
 
 ## Common Rationalizations
 
-| Excuse | Reality |
-|--------|---------|
-| "Skill is obviously clear" | Clear to you ≠ clear to other agents. Test it. |
-| "Testing is overkill" | Untested skills have issues. Always. |
-| "I'll test if problems emerge" | Problems = agents can't use the skill. Test BEFORE deploying. |
-| "Academic review is enough" | Reading ≠ using. Test application scenarios. |
-| "No time to test" | Deploying untested wastes more time later. |
+Excuses for skipping the failing-test-first gate, with counters: `references/rationalizations.md`.
 
 ## Checklist
 
@@ -118,7 +104,7 @@ Skills that enforce discipline must resist rationalization. Agents find loophole
 - [ ] Body ≤ 8 KB; depth pushed to `references/`
 - [ ] Cross-references use Skill tool calls, not `@`-links
 - [ ] Verified WITH the skill (GREEN); loopholes closed (REFACTOR)
-- [ ] Skill registered in every plugin manifest (`plugin.json` × 3, marketplace.json) and the `superwork` router's route table if it owns a lifecycle stage
+- [ ] Skill added to the `superwork` router's route table if it owns a lifecycle stage (SuperWork ships no plugin manifests — skills-copy model)
 - [ ] Run `scripts/validate.ps1` before committing
 
 ## STOP After Each Skill

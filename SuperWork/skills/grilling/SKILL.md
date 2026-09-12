@@ -23,6 +23,6 @@ The session is done when the frontier is empty: every branch of the design tree 
 
 ## With-Docs Mode (explicit request only)
 
-When the user explicitly asks for the documented variant — names "grill-with-docs", "/grill-with-docs", or asks for the interview to also produce docs (ADRs / glossary) — call the Skill tool a second time, with "domain-modeling", and keep both active for the whole session: grilling drives the rounds above; domain-modeling captures the terminology and decisions (CONTEXT.md + ADRs) as they crystallise.
+When the user explicitly asks for the documented variant — names "grill-with-docs", "/grill-with-docs", or asks for the interview to also produce docs (decisions / glossary) — call the Skill tool a second time, with "domain-modeling", and keep both active for the whole session: grilling drives the rounds above; domain-modeling captures the terminology and decisions (`技术依据.md` glossary + `决策记录.md`) as they crystallise.
 
 Never enable this mode on an ordinary grill request — the doc-writing side effects happen only on explicit request.

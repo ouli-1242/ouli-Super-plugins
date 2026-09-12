@@ -13,7 +13,7 @@ Load the plan, review it critically, execute its tasks one at a time, verify, re
 
 ## Step 1 — Load and Review the Plan
 
-1. Read the plan file (default location: `docs/superwork/plans/`; the user may pass any path).
+1. Read the plan file (default location: `docs/计划/`; the user may pass any path).
 2. Check the plan's `**Status:**` line:
    - `draft` → ask the user to approve the plan before executing anything.
    - `approved` → proceed.
@@ -43,6 +43,7 @@ When every task is checked off:
 
 1. Update the plan's `**Status:**` line to `completed`.
 2. Call the Skill tool three times, in order: first with "code-review" to review the whole change, then with "verification-before-completion" before declaring done, then with "finishing-a-development-branch" to decide how to integrate the work.
+3. Write a work log to `docs/日志/YYYY-MM-DD-<主题>.md` and register it in 文档导航 (per doc-index). The log IS these sections, in order: 今日做了什么（含提交 SHA）/ 证据（测试命令 + 输出，新鲜运行）/ 偏离声明（实际与计划不符处）/ 诚实边界（未做、未验证、受阻项）. If `docs/文档导航.md` is missing, create it via the doc-index skill first.
 
 ## When to Stop and Ask
 

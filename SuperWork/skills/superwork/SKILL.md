@@ -1,6 +1,6 @@
 ---
 name: superwork
-description: Use when starting any conversation or receiving any coding task - the entry-point router that decides which SuperWork skill applies, by lifecycle stage, BEFORE any other action including clarifying questions. 中文任务同样适用（加功能、修 bug、写代码、做计划、执行计划、评审、合并、查文档）。Covers every stage from idea to integration; loading this first prevents choosing the wrong skill. The full route table, unconditional disciplines, and exemptions live in this skill's body - read them, don't route from memory.
+description: Use when starting any conversation or receiving any coding task - the entry-point router that decides which SuperWork skill applies, by lifecycle stage, BEFORE any other action including clarifying questions. 中文任务同样适用（加功能、修 bug、写代码、做计划、执行计划、评审、合并、查文档）。Covers every stage from idea to integration; loading this first prevents choosing the wrong skill. The full route table and unconditional disciplines live in this skill's body - read them, don't route from memory.
 ---
 
 # SuperWork Router
@@ -31,6 +31,7 @@ The Skill tool takes one skill per call. A stage needing two skills is two calls
 | — Terminology / ADR | "统一术语", "记个架构决策", ubiquitous language | `domain-modeling` |
 | — Research primary sources | "查一下文档", "这个 API 怎么用", "research X" | `research` |
 | — Create/edit a skill | "加个 skill", "改一下这个 skill 的触发", "new skill" | `writing-skills` |
+| — Set up / maintain doc index | "建个文档导航", "整理一下文档", first artifact needs a home | `doc-index` |
 | — Session handoff | "交接", "handoff", "压缩会话" (user-invoked: `/handoff`) | user runs it |
 
 Manual-trigger only (never auto-invoke): `handoff`. `grilling`'s With-Docs Mode (grill + domain-modeling together) also fires only on explicit user request.
@@ -44,41 +45,18 @@ These bind even when no skill is loaded:
 1. **Test-first.** If the project has a test suite, write the failing test before production code; bug fixes ship with a regression test. Exceptions (throwaway prototypes, generated code, pure config) require asking the user first. Full method: `tdd`.
 2. **Evidence before completion.** No claim of "done/passing/fixed" without a fresh verification command run and read in this turn. "Should pass" is not evidence. Full method: `verification-before-completion`.
 3. **Review before merge.** Standards + Spec two-axis review before merging back to mainline when any threshold is met: core module touched / diff ≥ 15 files / new engine, API, or data-model contracts. Full method: `code-review`.
+4. **Persist and register.** Every artifact (spec, plan, decision, review, handoff, log) is saved under `docs/` in its type dir AND registered in `docs/文档导航.md` (per `doc-index`). Not done until on disk + in the index; chat-only is not a deliverable.
+5. **Honest boundary + deviation + red-team.** Logs/claims carry 诚实边界 (what was NOT done/verified) and 偏离声明 (reality vs plan); red-team self-check before "done". Methods: `executing-plans` (log slots), `verification-before-completion` (red-team).
 
-Disciplines are process rules — the exemptions below never waive them.
+Disciplines are process rules — the exemptions (see `references/exemptions.md`) never waive them.
 
-## Handoffs Between Skills
+## Depth (load on demand)
 
-Skills pass control to the next stage with an explicit call, never a bare `/name` mention:
+- Skill-to-skill transitions + resume-from-disk: `references/handoffs.md`
+- Self-check red flags (skip-the-route rationalizations): `references/red-flags.md`
+- What skips skills (trivial edits, pure execution, Q&A, user opt-out): `references/exemptions.md`
 
-- `brainstorming` (architectural path, spec approved) → call the Skill tool with `"writing-plans"`
-- `brainstorming` (bounded/spike path, design approved) → call the Skill tool with `"tdd"`
-- `writing-plans` (plan written and approved) → call the Skill tool with `"executing-plans"`
-- `executing-plans` (per task) → call the Skill tool with `"tdd"`; (all tasks done) → call the Skill tool with `"code-review"`, then `"verification-before-completion"`, then `"finishing-a-development-branch"` to integrate the work
-- `code-review` (report produced) → call the Skill tool with `"receiving-code-review"`
-- `tdd` (loop finished, cleanup time) → call the Skill tool with `"code-review"`
-- `verification-before-completion` (change verified; user signals integration or the change was large per discipline #3) → call the Skill tool with `"finishing-a-development-branch"`
-- `finishing-a-development-branch` (merge hits conflicts) → call the Skill tool with `"resolving-merge-conflicts"`
-
-If a conversation was interrupted and you are resuming mid-flow, re-derive the stage from the artifacts on disk (spec status lines, plan checkboxes, git log) and re-enter the route table at that stage.
-
-## Red Flags
-
-| Thought | Reality |
-|---------|---------|
-| "This is just a simple question" | Questions are tasks. Check the route table. |
-| "I need more context first" | Routing comes BEFORE exploring the codebase. |
-| "The task is too simple for a skill" | Simple scales the ceremony down, never skips the route. |
-| "I'll just start coding" | Stage 4 (`tdd`) applies the moment code is written. |
-| "It's basically done" | That's a stage-6 claim — verify first. |
-| "I remember what that skill says" | Skills evolve. Invoke and read the current version. |
-
-## Exemptions (what skips skills — disciplines still apply)
-
-- Trivial edits: copy changes, renames, one-line fixes, README tweaks → do directly.
-- Pure execution ("把计划第 2 项做了") → if a written plan exists, enter at stage 3 (`executing-plans`); if it's a direct instruction with no plan document, enter at stage 4 (`tdd`). Either way, skip stages 1-2 (brainstorming/writing-plans).
-- Simple Q&A and explanation requests → answer directly, no skill.
-- User explicitly says "直接做 / don't use skills" → comply, but warn once when a discipline is being skipped.
+These are aids, not the routing decision — the route table + disciplines + precedence are the decision. Load a reference when its question actually arises.
 
 ## Precedence
 
