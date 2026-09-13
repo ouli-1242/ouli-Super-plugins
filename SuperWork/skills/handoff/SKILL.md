@@ -1,8 +1,15 @@
 ---
 name: handoff
-description: Use when the user asks to transfer or compress the session - "交接", "handoff", "压缩会话", "会话太长了" - or when the context is nearly exhausted while work is unfinished and the next session must pick it up. Compresses the conversation into a handoff document another agent can continue from. NOT at ordinary task endings - finish the task and claim completion instead; NOT for summarizing documents or material (writing / doc-intake).
+description: Use when the user asks to transfer or compress the session - "交接", "handoff", "压缩会话", "会话太长了" - or when context usage crosses the compression line: around 40% start the handoff unless a task is mid-flight, 60% is the hard ceiling even mid-task. Compresses the conversation into a handoff document another agent can continue from. NOT at ordinary task endings - finish the task and claim completion instead; NOT for summarizing documents or material (writing / doc-intake).
 argument-hint: "What will the next session be used for?"
 ---
+
+## Compression line（上下文压缩线）
+
+- **~40% context**: if no task is mid-flight, run the handoff now — do not wait for the window to close. If a task is mid-flight, finish or checkpoint it first, then hand off.
+- **60% context — hard ceiling**: hand off regardless of state. Checkpoint the in-flight task precisely in the document (what is done, what is half-done, the exact next action, any uncommitted changes) so the next session resumes cleanly instead of doing archaeology.
+
+Context usage is estimated from conversation length and intensity, never measured exactly — when in doubt, hand off early. The 40% line exists because a handoff written early is cheap; one written at 90% is triage.
 
 Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `docs/交接/YYYY-MM-DD-交接与剩余任务.md` **in the workspace** (not a temp dir) — handoffs must be greppable and survive across sessions. If `docs/文档导航.md` is missing, create it via the doc-index skill first; register the handoff row in the 交接 table.
 

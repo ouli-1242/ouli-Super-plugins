@@ -11,7 +11,7 @@ SuperWork 的 45%。
 
 ## v2.2.1 handoff 开启自动调用
 
-`handoff` 移除 `disable-model-invocation`，description 重写为触发条件式：用户要求交接/压缩会话，或上下文将满且工作未完时自触发；普通任务收尾不触发。
+`handoff` 移除 `disable-model-invocation`，description 重写为触发条件式：用户要求交接/压缩会话，或上下文将满且工作未完时自触发；普通任务收尾不触发。新增压缩线：约 40% 开始交接（任务进行中则先完成/打点），60% 强制交接（文档内精确打点在途任务）。
 
 ## v2.2.0 日常化（更轻量灵活）
 
