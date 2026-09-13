@@ -69,3 +69,14 @@ Pick model-invocation only when the agent must reach the skill on its own, or an
 **Splitting by invocation**: split off a model-invoked skill when it has a distinct leading word that should trigger it on its own, or another skill must reach it — the new always-loaded description must be worth its load.
 
 **Router skills**: when user-invoked skills multiply past what one human remembers, a router skill names the others and when to reach for each. SuperWork's router is `superwork` — a new skill that owns a lifecycle stage registers in its route table (see the parent skill's checklist); it does not become a second router.
+
+## Trigger granularity (description exemplars)
+
+A description's trigger exemplars are boundary markers, not an enumeration — matching is semantic, so their only job is anchoring where the skill's intent starts and ends. Granularity ladder:
+
+- **字（single character）**: never a trigger — no semantic content, fires on everything.
+- **词（word）**: usable only as a low-frequency, exclusive anchor — a word whose appearance strongly implies this skill (挑刺, 重算, 落款). A bare high-frequency verb (写/改/查) is not a trigger; it appears in every other utterance.
+- **短语（3-8 chars）**: the workhorse — the user's actual words (帮我挑刺, 公式显示0, 整理一下这个聊天记录). 2-3 per skill.
+- **场景句（full sentence）**: only at ambiguous boundaries between neighboring skills, where words alone cannot distinguish intent (审别人的材料给意见不代改 vs 改自己的文). One at most.
+
+A trigger's value is its **exclusivity**: P(this skill should fire | the word appears in the utterance). Optimize for that, never for trigger frequency — the most easily triggered skill set is the wrong one. Pair granularity with negative exclusions: the NOT clause defends the boundary that the exemplars mark.
