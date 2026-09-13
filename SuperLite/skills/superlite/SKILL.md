@@ -20,6 +20,7 @@ Daily one-offs — a quick summary, a one-paragraph answer, a small comparison �
 | Hard bug resists a first fix | `diagnosing-bugs` |
 | Review changes before merge/delivery | `code-review` |
 | About to claim done (any deliverable - code, doc, analysis) | `verification-before-completion` |
+| Continue a written plan one step at a time - "按计划继续", "继续做第二步" | `tdd` for coding steps, `writing` for the rest |
 | Set up / maintain the project's doc index | `doc-index` |
 | Session handoff | user runs `/handoff` (manual only) |
 

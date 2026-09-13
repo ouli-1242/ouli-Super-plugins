@@ -1,6 +1,6 @@
 ---
 name: office-mcp-setup
-description: Use when the user asks to configure or install MCP servers or CLI tool integrations for office work - "配置MCP", "装个office MCP", "让AI能操控WPS", "配置文档解析", or on first-time setup of SuperOffice on a machine. Diagnoses whether an MCP is needed at all (most document tasks are not), picks from the vetted catalog, configures, verifies the connection, and records the result. NOT for using an already-configured tool (verb skills, wps-cli), NOT for software development work (use the SuperWork pack).
+description: Use when the user asks to configure or install MCP servers or CLI tool integrations for office work - "配置MCP", "装个office MCP", "让AI能操控WPS", "配置文档解析", "需要装什么才能让AI操作WPS", or on first-time setup of SuperOffice on a machine. Diagnoses whether an MCP is needed at all (most document tasks are not), picks from the vetted catalog, configures, verifies the connection, and records the result. NOT for using an already-configured tool (verb skills, wps-cli), NOT for software development work (use the SuperWork pack).
 ---
 
 # Office MCP Setup

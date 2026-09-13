@@ -1,6 +1,6 @@
 ---
 name: wps-cli
-description: "Use when operating Word/Excel/PPT/PDF documents through WPS Office COM automation - 76 CLI commands, 100% format fidelity, --json output for AI agents. 中文触发：操作办公文档、填写模板、生成报表、处理PDF、批量转换格式、诊断WPS环境、「用wps-cli」、「WPS重算」、「WPS导出PDF」。NOT for installing or configuring wps-cli or its MCP server (call office-mcp-setup), NOT when WPS is not installed on this machine."
+description: "Use when operating Word/Excel/PPT/PDF documents through WPS Office COM automation - 76 CLI commands, 100% format fidelity, --json output for AI agents. 中文触发：「用wps-cli」、WPS重算、公式显示0或结果不更新、刷新目录页码、用WPS引擎导出PDF保真格式、操控已打开的文档。NOT for plain closed-file conversion (file-ops is the default converter), NOT for installing or configuring wps-cli or its MCP server (call office-mcp-setup), NOT when WPS is not installed on this machine."
 ---
 # 设计参考: iOfficeAI/OfficeCLI (Apache 2.0, https://github.com/iOfficeAI/OfficeCLI)
 

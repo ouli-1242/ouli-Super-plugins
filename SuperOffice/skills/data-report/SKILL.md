@@ -1,6 +1,6 @@
 ---
 name: data-report
-description: Use when aggregating, checking, or analyzing spreadsheet data - merging multiple sheets or files, cross-checking totals, pivot tables, statistics, charts from tabular data, "汇总这几个表", "核对数据", "做个透视", "统计一下", "画个图表". NOT for filling forms with existing data (form-fill), NOT for converting file formats (file-ops), NOT for reading a single small table into context (just read it).
+description: Use when aggregating, checking, or analyzing spreadsheet data - merging multiple sheets or files, cross-checking totals, pivot tables, statistics, charts from tabular data, "汇总这几个表", "核对数据", "做个透视", "统计一下", "画个图表". NOT for filling forms with existing data (form-fill), NOT for converting file formats (file-ops), NOT for reading a single small table into context (just read it), NOT for recalculating stale formula results in an existing file (wps-cli).
 ---
 
 # Data Report — aggregate, verify, only then report

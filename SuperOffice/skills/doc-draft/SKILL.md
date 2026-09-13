@@ -1,6 +1,6 @@
 ---
 name: doc-draft
-description: Use when creating a new office document from scratch or from material - reports, notices, proposals, weekly reports, plans, letters, slides outlines, any "帮我写一份…". "写个报告", "起草一份通知", "写个周报", "做个方案", "写封邮件". NOT for turning messy input into material (doc-intake first), NOT for revising or polishing an existing text (doc-revise), NOT for filling fixed forms (form-fill).
+description: Use when creating a new office document from scratch or from material - reports, notices, proposals, weekly reports, plans, letters, slides outlines, any "帮我写一份…". "写个报告", "起草一份通知", "写个周报", "做个方案", "写封邮件". NOT for turning messy input into material (doc-intake first, then hand the material here), NOT for revising or polishing an existing text (doc-revise), NOT for filling fixed forms (form-fill).
 ---
 
 # Doc Draft — the universal drafting frame

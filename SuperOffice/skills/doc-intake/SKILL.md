@@ -1,6 +1,6 @@
 ---
 name: doc-intake
-description: Use when turning messy external input into structured products - meeting recordings or transcripts into minutes, chat logs or email threads into action items, scattered notes into organized drafts, long documents into summaries. "整理一下这个录音/聊天记录", "做个会议纪要", "总结这份材料", "把这些零散笔记理一理". NOT for creating a new document from scratch (doc-draft), NOT for revising an existing draft (doc-revise).
+description: Use when turning messy external input into structured products - meeting recordings or transcripts into minutes, chat logs or email threads into action items, scattered notes into organized drafts, long documents or web articles into summaries. "整理一下这个录音/聊天记录", "做个会议纪要", "总结这份材料", "把这些零散笔记理一理". NOT for creating a new document from scratch (doc-draft), NOT for revising an existing draft (doc-revise).
 ---
 
 # Doc Intake — turn messy input into structured products

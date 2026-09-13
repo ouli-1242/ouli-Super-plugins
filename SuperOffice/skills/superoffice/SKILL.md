@@ -1,6 +1,6 @@
 ---
 name: superoffice
-description: Use when any office-document task starts - drafting reports, memos, letters, slides, meeting notes; summarizing messy input; reviewing someone's material; filling forms; spreadsheet work; or any Word/Excel/PPT/PDF task. 中文同样适用（写报告、做PPT、改格式、整理会议记录、审材料、填表、做表格）。The entry router that picks the right verb skill BEFORE acting, and carries the office disciplines (data truthfulness, template first, evidence before delivery, credential safety). Read the body - don't route from memory.
+description: Use when any office-document task starts - drafting reports, memos, letters, slides, meeting notes; summarizing messy input; reviewing someone's material; filling forms; spreadsheet work; or any Word/Excel/PPT/PDF task. 中文同样适用（写报告、做PPT、改格式、整理会议记录、审材料、填表、做表格）。The entry router that picks the right verb skill BEFORE acting, and carries the office disciplines (data truthfulness, template first, evidence before delivery, credential safety). NOT for retrieving external information - that is a research task, not an office verb. Read the body - don't route from memory.
 ---
 
 # SuperOffice Router

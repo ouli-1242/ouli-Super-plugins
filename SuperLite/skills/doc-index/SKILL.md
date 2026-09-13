@@ -1,6 +1,6 @@
 ---
 name: doc-index
-description: Use when a project has no docs/文档导航.md yet (the first artifact needs a home), or when the user asks to organize the project's docs / set up a doc index / "建个文档导航" / "整理一下文档". Owns the single-source-of-truth doc index: creates the scaffold, declares where each artifact type lives, and is the protocol every producing skill follows to save and register its output. NOT for writing a specific design/plan/log (those skills produce the artifact, then register INTO the index).
+description: Use when a project has no docs/文档导航.md yet (the first artifact needs a home), or when the user asks to organize the project's docs / set up a doc index / "建个文档导航" / "整理项目文档结构". Owns the single-source-of-truth doc index: creates the scaffold, declares where each artifact type lives, and is the protocol every producing skill follows to save and register its output. NOT for writing a specific design/plan/log (those skills produce the artifact, then register INTO the index).
 ---
 
 # Doc Index (文档导航)
