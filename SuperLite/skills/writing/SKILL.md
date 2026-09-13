@@ -1,6 +1,6 @@
 ---
 name: writing
-description: Use when creating any written deliverable - documents, plans, reports, analyses, emails, config files, READMEs - or turning messy material into a structured one (总结文章、会议纪要、整理聊天记录成要点、翻译成文). "帮我写", "写个文档", "做个计划", "总结一下这篇", "整理一下这个聊天记录", "draft", "write up". Confirms purpose and audience first, outlines before prose for non-trivial pieces. NOT for code (tdd), NOT for stress-testing an existing plan (grilling).
+description: Use when creating any written deliverable - documents, plans, reports, analyses, emails, config files, READMEs - or turning messy material into a structured one (总结文章、会议纪要、整理聊天记录成要点、翻译成文). "帮我写", "写个文档", "做个计划", "总结一下这篇", "整理一下这个聊天记录". Confirms purpose and audience first, outlines before prose for non-trivial pieces. NOT for code (tdd), NOT for stress-testing an existing plan (grilling).
 ---
 
 # Writing

@@ -1,6 +1,6 @@
 ---
 name: writing-skills
-description: Use when creating a new skill, editing an existing skill, verifying a skill works before deployment, or the user explicitly requests a session retrospective - "加个 skill", "写个 skill", "改一下这个 skill 的触发", "optimize the description", "复盘", "retro". Applies TDD to skill documents - test the trigger first, then write. NOT for writing project docs, READMEs, or prompt templates for one-off use.
+description: Use when creating a new skill, editing an existing skill, verifying a skill works before deployment, or the user explicitly requests a session retrospective - "加个 skill", "写个 skill", "改一下这个 skill 的触发", "优化 description", "复盘". Applies TDD to skill documents - test the trigger first, then write. NOT for writing project docs, READMEs, or prompt templates for one-off use.
 ---
 
 # Writing Skills
@@ -45,7 +45,7 @@ A description that summarizes the workflow makes agents follow the description i
 
 - Start with "Use when..." (or "Use BEFORE..."); third person
 - Concrete triggers, symptoms, situations — describe the *problem*, not language-specific symptoms unless the skill is language-specific
-- Include Chinese trigger phrases for Chinese-language users (SuperWork convention)
+- Trigger exemplars in the user's actual speech: Chinese primary, plus code-switching tech terms they would actually say (review / debug / TDD / PR / ADR / MCP); no pure-English exemplar phrases a Chinese speaker would never utter (SuperWork convention)
 - Negative exclusions: name the neighboring skill that handles the cases you DON'T want ("NOT for bug reports (use diagnosing-bugs)")
 - `name`: verb-first, hyphens only (`executing-plans`, not `plan-execution`)
 - Frontmatter ≤ 1024 characters; body ≤ 8 KB (hard truncation on some harnesses — push depth into `references/`)

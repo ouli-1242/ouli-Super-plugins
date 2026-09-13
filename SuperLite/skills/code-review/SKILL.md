@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Use when reviewing changes before merge or delivery - the user asks to review a branch, PR, or work-in-progress changes ("review", "review since X", "评审一下这次的改动", "检查下改动"), or the change is large enough that review is mandatory before merging to mainline: core module touched, diff >= 15 files, or new engine/API/data-model contracts. Typically after implementation (tdd) and before declaring completion.
+description: Use when reviewing changes before merge or delivery - the user asks to review a branch, PR, or work-in-progress changes ("review", "评审一下这次的改动", "检查下改动"), or the change is large enough that review is mandatory before merging to mainline: core module touched, diff >= 15 files, or new engine/API/data-model contracts. Typically after implementation (tdd) and before declaring completion.
 ---
 
 Two-axis review of the diff between `HEAD` and a fixed point the user supplies:

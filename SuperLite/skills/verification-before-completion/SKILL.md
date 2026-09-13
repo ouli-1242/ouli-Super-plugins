@@ -1,6 +1,6 @@
 ---
 name: verification-before-completion
-description: Use BEFORE claiming any work is complete, fixed, or passing - before commits, PRs, or saying "done" / "完成" / "搞定" / "修好了" about any deliverable: code, documents, analyses, reports. Requires fresh verification (run the tests, re-read the document, re-check the numbers) before any success claim; evidence before assertions always. Pairs with code-review for code changes: review first, then verify.
+description: Use BEFORE claiming any work is complete, fixed, or passing - before commits, PRs, or saying "完成" / "搞定" / "修好了" about any deliverable: code, documents, analyses, reports. Requires fresh verification (run the tests, re-read the document, re-check the numbers) before any success claim; evidence before assertions always. Pairs with code-review for code changes: review first, then verify.
 ---
 
 # Verification Before Completion

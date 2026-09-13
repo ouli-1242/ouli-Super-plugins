@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use when a written implementation plan exists and the user wants it executed or resumed - "execute the plan", "把计划做了", "继续做计划", "implement task N of the plan", picking up a plan mid-way. The plan is followed as written; deviations and blockers go back to the user, not improvised. NOT for writing a plan (writing-plans), NOT for direct instructions with no plan document (tdd directly).
+description: Use when a written implementation plan exists and the user wants it executed or resumed - "把计划做了", "继续做计划", "执行计划到第几步", picking up a plan mid-way. The plan is followed as written; deviations and blockers go back to the user, not improvised. NOT for writing a plan (writing-plans), NOT for direct instructions with no plan document (tdd directly).
 ---
 
 # Executing Plans

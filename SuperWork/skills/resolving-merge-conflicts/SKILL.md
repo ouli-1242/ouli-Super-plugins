@@ -1,6 +1,6 @@
 ---
 name: resolving-merge-conflicts
-description: Use when a git merge or rebase is in progress and has conflicts to resolve - "解决冲突", "merge conflict", "rebase 卡住了", "conflict markers in the file". Reads both sides' original intent, preserves both where possible, never invents new behavior, never aborts. NOT for deciding whether to merge (finishing-a-development-branch), NOT for reviewing code (code-review).
+description: Use when a git merge or rebase is in progress and has conflicts to resolve - "解决冲突", "merge conflict", "rebase 卡住了". Reads both sides' original intent, preserves both where possible, never invents new behavior, never aborts. NOT for deciding whether to merge (finishing-a-development-branch), NOT for reviewing code (code-review).
 ---
 
 # Resolving Merge Conflicts

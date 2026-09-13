@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when a design or spec has been approved and needs to be broken into a bite-sized implementation plan, before any code is written. "拆任务", "做个实施计划", "write the implementation plan", "how should we implement this". This is the step after brainstorming approves a design. NOT for vague ideas that still need design (brainstorming first), NOT for small single-file tasks that can be implemented directly (tdd).
+description: Use when a design or spec has been approved and needs to be broken into a bite-sized implementation plan, before any code is written. "拆任务", "做个实施计划". This is the step after brainstorming approves a design. NOT for vague ideas that still need design (brainstorming first), NOT for small single-file tasks that can be implemented directly (tdd).
 ---
 
 # Writing Plans

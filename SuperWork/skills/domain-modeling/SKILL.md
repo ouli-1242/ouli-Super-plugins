@@ -1,6 +1,6 @@
 ---
 name: domain-modeling
-description: Use when the user wants to pin down domain terminology or a ubiquitous language, or record an architectural decision - "统一术语", "这个词到底什么意思", "glossary", "ubiquitous language", "记个架构决策", "record this decision", "ADR". Actively builds and sharpens the project's domain model: decisions accumulate in docs/决策记录.md (D-NNN, six-part), the glossary lives in docs/技术依据.md. NOT for general design discussion - only for language and decision records. Pairs with grilling's With-Docs Mode; consumed by tdd and diagnosing-bugs.
+description: Use when the user wants to pin down domain terminology or a ubiquitous language, or record an architectural decision - "统一术语", "这个词到底什么意思", "记个架构决策", "ADR". Actively builds and sharpens the project's domain model: decisions accumulate in docs/决策记录.md (D-NNN, six-part), the glossary lives in docs/技术依据.md. NOT for general design discussion - only for language and decision records. Pairs with grilling's With-Docs Mode; consumed by tdd and diagnosing-bugs.
 ---
 
 # Domain Modeling

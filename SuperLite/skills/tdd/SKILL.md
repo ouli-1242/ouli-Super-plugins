@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Use when writing or about to write production code - any feature implementation or bug fix. "implement", "开写", "实现这个功能", "red-green-refactor", integration tests. If requirements are not yet confirmed, ask the user before coding.
+description: Use when writing or about to write production code - any feature implementation or bug fix. "开写", "实现这个功能", "TDD", "red-green-refactor". If requirements are not yet confirmed, ask the user before coding.
 ---
 
 # Test-Driven Development

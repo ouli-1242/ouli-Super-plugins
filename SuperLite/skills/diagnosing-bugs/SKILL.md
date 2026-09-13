@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: Use when a bug resists a first fix attempt, or the user reports something broken, throwing, failing, or slow - "debug this", "帮我调试", "为什么报错", "这个 bug 怎么回事", performance regressions. Builds a tight feedback loop BEFORE hypothesizing or fixing anything. NOT for trivial one-line errors with an obvious cause - fix those directly. NOT for new feature work - that is not a bug.
+description: Use when a bug resists a first fix attempt, or the user reports something broken, throwing, failing, or slow - "debug", "帮我调试", "为什么报错", "这个 bug 怎么回事", performance regressions. Builds a tight feedback loop BEFORE hypothesizing or fixing anything. NOT for trivial one-line errors with an obvious cause - fix those directly. NOT for new feature work - that is not a bug.
 ---
 
 # Diagnosing Bugs

@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Use when writing or about to write production code for an approved task - any feature implementation or bug fix. "implement", "开写", "实现这个功能", "red-green-refactor", integration tests. NOT when requirements are still unclear (brainstorming first), NOT when a written multi-task plan is being executed (executing-plans orchestrates that and calls this per task), NOT for work that needs a plan written first (writing-plans).
+description: Use when writing or about to write production code for an approved task - any feature implementation or bug fix. "开写", "实现这个功能", "TDD", "red-green-refactor". NOT when requirements are still unclear (brainstorming first), NOT when a written multi-task plan is being executed (executing-plans orchestrates that and calls this per task), NOT for work that needs a plan written first (writing-plans).
 ---
 
 # Test-Driven Development

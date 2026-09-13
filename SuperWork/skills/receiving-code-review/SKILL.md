@@ -1,6 +1,6 @@
 ---
 name: receiving-code-review
-description: Use when receiving code review feedback or findings - from the user, a reviewer, or the code-review skill's report - before implementing any of it ("fix these findings", "处理评审意见", "review comments"). Verify each suggestion against the codebase first; requires technical rigor, not performative agreement or blind implementation. Push back with technical reasoning when a finding is wrong.
+description: Use when receiving code review feedback or findings - from the user, a reviewer, or the code-review skill's report - before implementing any of it ("处理评审意见", "按评审意见改"). Verify each suggestion against the codebase first; requires technical rigor, not performative agreement or blind implementation. Push back with technical reasoning when a finding is wrong.
 ---
 
 # Code Review Reception

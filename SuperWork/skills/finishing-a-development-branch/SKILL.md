@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete and tests pass, to decide how to integrate the work - "合并分支", "提个 PR", "merge this back", "收尾这个分支". The integration choice (merge / PR / keep) belongs to the user; branch deletion requires typed confirmation. NOT before tests pass (verification-before-completion first), NOT for reviewing the code itself (code-review first), NOT while merge conflicts are unresolved (resolving-merge-conflicts).
+description: Use when implementation is complete and tests pass, to decide how to integrate the work - "合并分支", "提个 PR", "收尾这个分支". The integration choice (merge / PR / keep) belongs to the user; branch deletion requires typed confirmation. NOT before tests pass (verification-before-completion first), NOT for reviewing the code itself (code-review first), NOT while merge conflicts are unresolved (resolving-merge-conflicts).
 ---
 
 # Finishing a Development Branch
