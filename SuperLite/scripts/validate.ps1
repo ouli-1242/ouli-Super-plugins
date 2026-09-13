@@ -64,8 +64,6 @@ Get-ChildItem (Join-Path $Root 'skills') -Directory | ForEach-Object {
             if (-not (Test-Path (Join-Path $skillDir $base))) { $fail += "BROKEN-REF: $skill -> $rel" }
         }
     }
-}
-
     # cross-skill references: every "Call the Skill tool with X" target must be a skill dir in this pack
     [regex]::Matches($raw, '(?i:Call) the Skill tool with "([a-z][a-z-]+)"') | ForEach-Object {
         $target = Join-Path (Join-Path $Root 'skills') $_.Groups[1].Value
@@ -78,6 +76,8 @@ Get-ChildItem (Join-Path $Root 'skills') -Directory | ForEach-Object {
         $lp = Join-Path $skillDir $_.Groups[1].Value
         if (-not (Test-Path $lp)) { $fail += "BROKEN-LINK: $skill -> $($_.Groups[1].Value)" }
     }
+}
+
 # --- Claude plugin manifest lists exactly the skill directories ---
 $claudeManifest = Join-Path $Root '.claude-plugin\plugin.json'
 if (Test-Path $claudeManifest) {

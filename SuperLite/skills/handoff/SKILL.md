@@ -16,7 +16,7 @@ Do not duplicate content already captured in other artifacts (specs, plans, deci
 1. **立即接续命令** — exact shell commands to reproduce state (git status, the test command). Durable run commands (setup/run/test/deploy) live in `docs/运行.md` — reference it, don't re-derive here.
 2. **今日交付** — what shipped, with commit SHAs and key artifacts.
 3. **剩余任务** — what the next session should do, in priority order.
-4. **诚实边界** — what was NOT done / unverified / blocked, stated plainly. Required, not optional.
+4. **诚实边界与偏离声明** — what was NOT done / unverified / blocked, stated plainly, plus what was actually done vs what was asked or planned. Required, not optional.
 5. **suggested skills** — which SuperLite skills the next agent should invoke and why.
 
 Redact any sensitive information — API keys, passwords, PII. If the user passed arguments, treat them as a description of what the next session will focus on and tailor the doc accordingly.

@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Use when writing or about to write production code - any feature implementation or bug fix. "开写", "实现这个功能", "TDD", "red-green-refactor". Also for continuing a written plan one coding step at a time - "按计划继续", "继续做第二步". If requirements are not yet confirmed, ask the user before coding.
+description: Use when writing or about to write production code - any feature implementation or bug fix. "开写", "实现这个功能", "TDD", "red-green-refactor". If requirements are not yet confirmed, ask the user before coding.
 ---
 
 # Test-Driven Development

@@ -79,4 +79,4 @@ A description's trigger exemplars are boundary markers, not an enumeration — m
 - **短语（3-8 chars）**: the workhorse — the user's actual words (帮我挑刺, 公式显示0, 整理一下这个聊天记录). 2-3 per skill.
 - **场景句（full sentence）**: only at ambiguous boundaries between neighboring skills, where words alone cannot distinguish intent (审别人的材料给意见不代改 vs 改自己的文). One at most.
 
-A trigger's value is its **exclusivity**: P(this skill should fire | the word appears in the utterance). Optimize for that, never for trigger frequency — the most easily triggered skill set is the wrong one. Pair granularity with negative exclusions: the NOT clause defends the boundary that the exemplars mark.
+A trigger's value is its **exclusivity**: P(this skill should fire | the word appears in the utterance). Optimize for that, never for trigger frequency — the most easily triggered skill set is the wrong one. Router skills are exempt from the count: their job is enumeration, and each listed signal must still pass the exclusivity test. Pair granularity with negative exclusions: the NOT clause defends the boundary that the exemplars mark.

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up. Manual-trigger only - the user explicitly asks for a handoff or session transfer ("/handoff", "交接一下", "压缩会话"); do not auto-trigger this on ordinary task endings.
+description: Compact the current conversation into a handoff document for another agent to pick up. Manual-trigger only - the user explicitly asks for a handoff or session transfer ("/handoff", "交接一下", "压缩会话", "会话太长了"); do not auto-trigger this on ordinary task endings.
 argument-hint: "What will the next session be used for?"
 disable-model-invocation: true
 ---

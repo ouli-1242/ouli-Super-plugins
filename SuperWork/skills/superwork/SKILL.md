@@ -31,7 +31,7 @@ The Skill tool takes one skill per call. A stage needing two skills is two calls
 | — Terminology / ADR | "统一术语", "记个架构决策", ubiquitous language | `domain-modeling` |
 | — Research primary sources | "查一下文档", "这个 API 怎么用", "research X" | `research` |
 | — Create/edit a skill | "加个 skill", "改一下这个 skill 的触发", "new skill" | `writing-skills` |
-| — Retrospective on a session | "复盘", "retro", "这次会话哪里可改进", after an incident or a merge | `writing-skills` (Retro Mode) |
+| — Retrospective on a session | "复盘", "retro", "这次会话哪里可改进"（user asks — e.g. after an incident or a merge） | `writing-skills` (Retro Mode) |
 | — Set up / maintain doc index | "建个文档导航", "整理一下文档", first artifact needs a home | `doc-index` |
 | — Session handoff | "交接", "handoff", "压缩会话" (user-invoked: `/handoff`) | user runs it |
 

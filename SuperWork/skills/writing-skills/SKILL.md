@@ -1,6 +1,6 @@
 ---
 name: writing-skills
-description: Use when creating a new skill, editing an existing skill, verifying a skill works before deployment, or the user explicitly requests a session retrospective - "加个 skill", "写个 skill", "改一下这个 skill 的触发", "优化 description", "复盘". Applies TDD to skill documents - test the trigger first, then write. NOT for writing project docs, READMEs, or prompt templates for one-off use.
+description: Use when creating a new skill, editing an existing skill, verifying a skill works before deployment, or the user explicitly requests a session retrospective - "加个 skill", "写个 skill", "改一下这个 skill 的触发", "优化 description", "复盘这次会话". NOT for postmorteming a bug (diagnosing-bugs) or re-reviewing a diff (code-review), NOT for writing project docs, READMEs, or prompt templates for one-off use.
 ---
 
 # Writing Skills
@@ -97,7 +97,7 @@ Excuses for skipping the failing-test-first gate, with counters: `references/rat
 
 ## Retro Mode (session retrospective)
 
-Explicit user request only ("复盘", "retro", "这次会话哪里可改进") — never self-invoked after ordinary tasks. Improves the agent's **environment** for future runs, not the code: full process and the seven-category checklist live in `references/retro.md`. Implement each approved change through this skill's discipline — an AGENTS.md line, a review rule, or a skill edit is an edit to an existing skill, so the Iron Law applies.
+Explicit user request only ("复盘这次会话", "retro") — never self-invoked after ordinary tasks. Improves the agent's **environment** for future runs, not the code: full process and the seven-category checklist live in `references/retro.md`. Implement each approved change through this skill's discipline — an AGENTS.md line, a review rule, or a skill edit is an edit to an existing skill, so the Iron Law applies.
 
 ## Checklist
 

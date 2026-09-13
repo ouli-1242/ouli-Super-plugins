@@ -116,6 +116,7 @@ Once verification passes, before any completion claim, adopt the adversary's sta
 
 - **How could this be wrong?** — what assumption did the green test NOT cover? (untested branch, mocked dependency, fixture that doesn't match real input, a number not re-checked against its source)
 - **What did I NOT verify?** — name it explicitly; it goes into the deliverable's or handoff's 诚实边界, not buried.
+- **偏离声明** — what was actually done vs what was asked or planned; when they diverge, state the drift as plainly as the gaps.
 - **What would break in real use?** — edge cases the checks so far don't model (for non-code deliverables: the reader who wasn't in the room, the number quoted out of context).
 
 If you cannot answer these, you haven't verified — you've checked a box. An honest "I don't know" goes into the 诚实边界, not buried.

@@ -26,7 +26,7 @@ When the deliverable is a plan — trip, project, task breakdown, rollout — th
 
 ## Where durable deliverables live
 
-Save durable deliverables (plans, specs, reports) under `docs/` in the matching type dir and register them in `docs/文档导航.md` (per `doc-index`): plans → `docs/计划/`, specs/designs → `docs/设计/`, review reports → `docs/审查/`. Throwaway pieces (a quick email, a scratch note) stay in chat — don't pollute the index. If `docs/文档导航.md` is missing, create it via doc-index first.
+In a project (a `docs/` spine exists, or the user treats this directory as one), save durable deliverables under `docs/` in the matching type dir and register them in `docs/文档导航.md` (per `doc-index`): plans → `docs/计划/`, specs/designs → `docs/设计/`, review reports → `docs/审查/`, minutes and digested material the user wants kept → `docs/日志/`. In daily one-off use, deliverables stay in chat unless the user asks to save — don't create a docs spine for a price comparison. If a save is wanted and `docs/文档导航.md` is missing, create it via doc-index first.
 
 ## Anti-patterns
 
