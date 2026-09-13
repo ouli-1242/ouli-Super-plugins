@@ -1,8 +1,7 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up. Manual-trigger only - the user explicitly asks for a handoff or session transfer ("/handoff", "交接一下", "压缩会话", "会话太长了"); do not auto-trigger this on ordinary task endings.
+description: Use when the user asks to transfer or compress the session - "交接", "handoff", "压缩会话", "会话太长了" - or when the context is nearly exhausted while work is unfinished and the next session must pick it up. Compresses the conversation into a handoff document another agent can continue from. NOT at ordinary task endings - finish the task and claim completion instead; NOT for summarizing documents or material (writing / doc-intake).
 argument-hint: "What will the next session be used for?"
-disable-model-invocation: true
 ---
 
 Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `docs/交接/YYYY-MM-DD-交接与剩余任务.md` **in the workspace** (not a temp dir) — handoffs must be greppable and survive across sessions. If `docs/文档导航.md` is missing, create it via the doc-index skill first; register the handoff row in the 交接 table.

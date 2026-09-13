@@ -9,6 +9,10 @@ Handoffs 网与红旗表（9 个 skill 间转移极少且已内嵌正文）。
 固定上下文成本 ~1000 tokens，典型会话（含路由器加载）~1800 tokens，约为
 SuperWork 的 45%。
 
+## v2.2.1 handoff 开启自动调用
+
+`handoff` 移除 `disable-model-invocation`，description 重写为触发条件式：用户要求交接/压缩会话，或上下文将满且工作未完时自触发；普通任务收尾不触发。
+
 ## v2.2.0 日常化（更轻量灵活）
 
 - **superlite 路由表日常优先**：写作/查证/决策三行提到最前并扩日常触发词；description 定位改为"daily use and simple projects"。
@@ -72,7 +76,7 @@ SuperWork 的 45%。
   配置。目的与读者先行，非琐碎件先大纲后成文，写完对照目的自审。
 - `research` — 委托后台代理查一手来源，产出带引用的 Markdown。防编造事实。
 - `grilling` — 决策压力测试：决策树 + 轮次 + 前沿的追问，直至无默默假设。
-- `handoff` — 会话压缩成交接文档，落 `docs/交接/`（仅手动 `/handoff`）。
+- `handoff` — 会话压缩成交接文档，落 `docs/交接/`（v2.2.1 起允许自动调用：会话将满且工作未完时自触发）。
 - `doc-index`（v2.0.0 同步）— 文档导航协议：`docs/文档导航.md` 是唯一索引
   门面 + 路径约定声明。产出 skill 落盘后在导航登记一行，无登记不算交付。
 
