@@ -1,6 +1,6 @@
 # MCP Catalog — vetted entries for office work
 
-Companion reference for `office-mcp-setup`. Status as of 2026-09. Entries marked **Pending** are vetted but intentionally not configured in v0.1 — configure only on explicit user request.
+Companion reference for `office-mcp-setup`. Status as of 2026-09. Entries marked **Pending** are vetted but intentionally not configured in v1.0.0 — configure only on explicit user request.
 
 ## 1. Control a running office app
 
@@ -8,8 +8,8 @@ The only reason to reach for this category: computing formulas, refreshing field
 
 | Entry | Covers | Mechanics | Notes |
 |---|---|---|---|
-| **wps-cli** (github.com/jjchen17/wps-cli, ~50★) | WPS Writer/Calc/Impress/PDF | Windows COM driving a real WPS instance; 76 commands; JSON output; built-in MCP server; resident mode makes consecutive ops 5–10× faster | Preferred when WPS is installed. CLI usage has its own `wps-cli` skill (adopted from upstream). One-command MCP registration: `wps mcp install --target <agent>`; verify install with `wps-cli --version`, registration with `wps mcp status` |
-| **OfficeMCP** (github.com/OfficeMCP) | Word, Excel, PowerPoint, Access, OneNote, Visio, Project, WPS | Windows COM automation of the real applications | Preferred for MS Office environments; broadest app coverage |
+| **wps-cli** (github.com/jjchen17/wps-cli, ~50★) | WPS Writer/Calc/Impress/PDF | Windows COM driving a real WPS instance; 76 commands; JSON output; built-in MCP server; resident mode makes consecutive ops 5–10× faster | Preferred when WPS is installed. CLI usage has its own `wps-cli` skill (adopted from upstream). One-command MCP registration: `wps mcp install --target <agent>`; verify install with `wps version`, registration with `wps mcp status` |
+| **OfficeMCP** (github.com/OfficeMCP) | Word, Excel, PowerPoint, Access, OneNote, Visio, Project, WPS | Windows COM automation of the real applications | Preferred for MS Office environments; broadest app coverage. ⚠ upstream ships an unrestricted `RunPython` tool — audit before enabling |
 
 **Do not use for this category:** python-docx/openpyxl-based servers (see "Rejected" below) — they cannot touch a running instance or compute formulas.
 
@@ -18,14 +18,15 @@ The only reason to reach for this category: computing formulas, refreshing field
 | Entry | Covers | Mechanics | Notes |
 |---|---|---|---|
 | **markitdown-mcp** (Microsoft official) | Office docs, PDF, images → Markdown | MCP wrapper around Microsoft's markitdown converter | The parser for `doc-intake` and `doc-asset` batch ingestion. Single files: read directly, no MCP |
+| **glmocr-table** (zai-org/GLM-OCR official skill, ~7.4k★) | scanned pages / photo tables → Markdown / Excel, merged cells handled | GLM-OCR API key (智谱开放平台) | The OCR engine `file-ops` routes to; set the key before first use |
 
-## 3. External service channels — **Pending, v0.1 does not configure**
+## 3. External service channels — **Pending, v1.0.0 does not configure**
 
 | Entry | Covers | Credential | When the user asks |
 |---|---|---|---|
 | **lark-openapi-mcp** (larksuite official, github.com/larksuite/lark-openapi-mcp) | Feishu/Lark: cloud docs, calendar, messages, groups, Bitable | Feishu open-platform app (App ID/Secret) | "接飞书" — official, covers the whole platform |
-| **wecom-cli** (WecomTeam official, ~3.1k★, very active) | WeCom: mail send/reply/search, meetings (book/minutes/transcript), calendar, docs, online sheets | WeCom open-platform bot (Bot ID/Secret) | "接企业微信" — ships its own agent skill; adopt it, don't rewrite |
-| **claude-code-dingtalk-mcp** | DingTalk group robot: one-way text/Markdown/link notifications | Webhook token | Only "往钉钉群发通知"; no read/inbox capability |
+| **wecom-cli** (WecomTeam official, github.com/WecomTeam/wecom-cli, ~3.1k★, very active) | WeCom: mail send/reply/search, meetings (book/minutes/transcript), calendar, docs, online sheets | WeCom open-platform bot (Bot ID/Secret) | "接企业微信" — ships its own agent skill; adopt it, don't rewrite |
+| **claude-code-dingtalk-mcp** (github.com/sfyyy/claude-code-dingtalk-mcp) | DingTalk group robot: one-way text/Markdown/link notifications | Webhook token | Only "往钉钉群发通知"; no read/inbox capability |
 
 ## Rejected (with reasons — do not admit later without new evidence)
 

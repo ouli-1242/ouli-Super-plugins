@@ -57,4 +57,4 @@ If the product is a file, read it back (verify-output method). Deliver with a **
 
 ## Downstream
 
-After drafting: user says 改 → `doc-revise`; user says 检查 → `verify-output`; user says "以后都按这个格式" → `doc-asset`. Filling a fixed form is not drafting — `form-fill`.
+After drafting: user says 改 → `doc-revise`; user says 检查 → `verify-output`; user says "以后都按这个格式" → `doc-asset`. Filling a fixed form is not drafting — `form-fill`. Slides: the outline is drafted here; the deck file itself is produced afterwards with the document skills' pptx route or wps-cli impress.

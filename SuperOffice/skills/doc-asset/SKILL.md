@@ -39,7 +39,7 @@ docs/办公资产/
 └── 措辞库.md
 ```
 
-Every asset lands on disk **and** in `索引.md` — not registered is not saved (superoffice discipline, same spine as all artifacts).
+Every asset lands on disk **and** in `索引.md` — not registered is not saved (same spine as all SuperOffice artifacts).
 
 ## Using assets — the contract other skills rely on
 

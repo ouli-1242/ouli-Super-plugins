@@ -2,6 +2,15 @@
 
 Ouli 的通用办公 skill 组合包。与 [SuperWork](../SuperWork)（编码过程纪律）互补：SuperWork 管「怎么干活」，SuperOffice 管「干出来的办公产物」——报告、表格、幻灯片、纪要、表单，一切 Word / Excel / PPT / PDF 的真实办公任务。
 
+## 前置依赖
+
+- **document-skills（Anthropic 官方 docx/xlsx/pptx/pdf）是主引擎**：doc-revise / doc-review / form-fill / file-ops 的文件读写默认走它的 Python 路线。安装：Claude Code 插件市场，或从 [anthropics/skills](https://github.com/anthropics/skills) 复制对应目录。未安装时这些环节无法落地产物——`office-mcp-setup` 的诊断会提示。
+- **可选引擎**（由 `office-mcp-setup` 按需配置）：wps-cli（WPS 实时控制）、markitdown-mcp（批量解析）、glmocr-table（扫描件 OCR，需智谱 API key）。
+
+## v1.0.1 对抗性审查修正
+
+三个独立审查代理红队后的修复：GLM-OCR 引擎补入 MCP 目录（此前 file-ops 引用了未收录的引擎——违反自家纪律 #1）；validate.ps1 增加两项真检查（Skill-tool 引用目标存在性、markdown 链接解析）；README 声明前置依赖 document-skills；版本残留 v0.1×3、计数 11/12 矛盾、undelared 拼写、双 H1、wps 验证命令（--version→version）、OfficeMCP RunPython 风险注、IM 通道 pending 措辞、doc-asset 幽灵纪律引用、路由表触发词与 description 对齐、PPT 产线断路（doc-draft 明确大纲→pptx/impress 落地）；office-mcp-setup / verify-output / wps-cli / superoffice 四条 description 按 SDO 修剪。
+
 ## v1.0.0 全动词发布
 
 12 个 skill 全部就位：元路由器 + 八个文档动词（intake / draft / revise / review / data / file-ops / form-fill / verify）+ doc-asset + 环境使能（office-mcp-setup、wps-cli）。写作侧构成完整生命周期：**intake（消化输入）→ draft（起草）→ revise（修改）→ review（审阅）→ verify（验证交付）→ asset（沉淀反哺）**。
@@ -72,7 +81,7 @@ Ouli 的通用办公 skill 组合包。与 [SuperWork](../SuperWork)（编码过
 
 ```
 SuperOffice\
-├── skills\                # 11 个 skill（各 agent 共用）
+├── skills\                # 12 个 skill（各 agent 共用）
 ├── scripts\validate.ps1   # 维护校验（升级前必跑）
 └── README.md
 ```

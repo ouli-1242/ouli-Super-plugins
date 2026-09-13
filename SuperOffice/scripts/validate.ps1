@@ -1,5 +1,5 @@
 # SuperOffice maintenance validator
-# Static checks for every SKILL.md and plugin manifest. Run before committing any
+# Static checks for every SKILL.md. Run before committing any
 # skill change:  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate.ps1
 # Exit code 0 = all checks passed; 1 = failures (listed below).
 # NOTE: keep this file pure ASCII - Windows PowerShell 5.1 misreads BOM-less UTF-8.
@@ -66,6 +66,18 @@ Get-ChildItem (Join-Path $Root 'skills') -Directory | ForEach-Object {
     }
 }
 
+    # cross-skill references: every "Call the Skill tool with X" target must be a skill dir in this pack
+    [regex]::Matches($raw, '(?i:Call) the Skill tool with "([a-z][a-z-]+)"') | ForEach-Object {
+        $target = Join-Path (Join-Path $Root 'skills') $_.Groups[1].Value
+        if (-not (Test-Path $target)) {
+            $fail += "DANGLING-SKILL-REF: $skill -> $($_.Groups[1].Value)"
+        }
+    }
+    # markdown-link references: [text](path.md) must resolve relative to the skill dir
+    [regex]::Matches($raw, '\]\(([^)#\s]+?\.md)\)') | ForEach-Object {
+        $lp = Join-Path $skillDir $_.Groups[1].Value
+        if (-not (Test-Path $lp)) { $fail += "BROKEN-LINK: $skill -> $($_.Groups[1].Value)" }
+    }
 # --- Claude plugin manifest lists exactly the skill directories ---
 $claudeManifest = Join-Path $Root '.claude-plugin\plugin.json'
 if (Test-Path $claudeManifest) {

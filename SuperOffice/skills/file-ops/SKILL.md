@@ -21,7 +21,7 @@ Ask or state: what must survive the operation **exactly** — tables and their c
 | docx ↔ pdf via WPS engine (layout-critical) | The Skill tool with "wps-cli" export — WPS renders it as the user's WPS would print it |
 | Batch rename | Script a **dry-run listing first** (old → new), show the user, then execute |
 
-Engines referenced above are configured by `office-mcp-setup`; if a needed engine is missing, say so and offer to set it up — do not silently fall back to a lower-fidelity route.
+Engines referenced above are cataloged in the `office-mcp-setup` skill's MCP catalog; if a needed engine is missing, say so and offer to set it up — do not silently fall back to a lower-fidelity route.
 
 ## Step 3 — Trial single, then batch
 

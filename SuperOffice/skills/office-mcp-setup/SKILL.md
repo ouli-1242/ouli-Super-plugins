@@ -1,6 +1,6 @@
 ---
 name: office-mcp-setup
-description: Use when the user asks to configure or install MCP servers or CLI tool integrations for office work - "配置MCP", "装个office MCP", "让AI能操控WPS", "配置文档解析", "需要装什么才能让AI操作WPS", or on first-time setup of SuperOffice on a machine. Diagnoses whether an MCP is needed at all (most document tasks are not), picks from the vetted catalog, configures, verifies the connection, and records the result. NOT for using an already-configured tool (verb skills, wps-cli), NOT for software development work (use the SuperWork pack).
+description: Use when the user asks to configure or install MCP servers or CLI tool integrations for office work - "配置MCP", "装个office MCP", "让AI能操控WPS", "配置文档解析", "需要装什么才能让AI操作WPS", or on first-time setup of SuperOffice on a machine. Diagnoses whether an MCP is needed at all (most document tasks are not), then selects from the vetted catalog (`references/mcp-catalog.md`). NOT for using an already-configured tool (verb skills, wps-cli), NOT for software development work (use the SuperWork pack).
 ---
 
 # Office MCP Setup
@@ -13,7 +13,7 @@ Ask what the user actually wants to do, then match against the only three cases 
 
 1. **Control a running office app** — recalculate Excel formulas (libraries like openpyxl write formulas but do not compute them), refresh Word fields/TOC/page numbers, operate the document the user has open, export via the app's own engine → WPS-control MCPs. If the file is closed and plain read/write is enough: no MCP.
 2. **Parse many old files into context** — batch-convert Office/PDF archives to Markdown for intake or asset-building → `markitdown-mcp`. For a single file: no MCP, read it directly.
-3. **Talk to an external service** — IM channels, mail, cloud docs (Feishu, WeCom, DingTalk). **Pending: intentionally not configured in v0.1.** The catalog keeps the vetted entries; configure them only when the user explicitly asks.
+3. **Talk to an external service** — IM channels, mail, cloud docs (Feishu, WeCom, DingTalk). **Pending: intentionally not configured in v1.0.0.** The catalog keeps the vetted entries; configure them only when the user explicitly asks.
 
 Anything else → tell the user no MCP is needed and stop. Over-configuring wastes discovery slots and adds failure surfaces.
 

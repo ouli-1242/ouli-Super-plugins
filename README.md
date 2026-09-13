@@ -10,7 +10,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 |---|---|---|---|
 | [`SuperWork/`](SuperWork/) | `superwork` | 2.1.0 | 全量精选 skill 组合包（17 个 skill）：TDD/debugging/code review/grilling/domain-modeling/verification + spec→plan→execute 全链条 + 文档导航 spine（docs/ 中文约定）；v2.1.0 吸收 retro 会话复盘 / agent 文档写作 / 深模块词汇 |
 | [`SuperLite/`](SuperLite/) | `superlite` | 2.2.0 | 日常轻量包（10 个 skill）：写作/总结/查证/决策 + TDD/debugging/review/verification + handoff/doc-index；日常一次性任务零仪式，固定成本约 SuperWork 的 53% |
-| [`SuperOffice/`](SuperOffice/) | `superoffice` | 1.0.0 | 通用办公产物包（12 个 skill）：整理输入/起草/修改/审阅/数据汇总/文件手术/填表/产物验证/模板资产 + WPS CLI 与办公 MCP 使能；动词层架构，数字与引用真实性纪律 |
+| [`SuperOffice/`](SuperOffice/) | `superoffice` | 1.0.1 | 通用办公产物包（12 个 skill）：整理输入/起草/修改/审阅/数据汇总/文件手术/填表/产物验证/模板资产 + WPS CLI 与办公 MCP 使能；动词层架构，数字与引用真实性纪律 |
 
 
 ### MCP Server（Python 包，同步自各自独立仓库）
@@ -46,7 +46,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 ## 说明
 
 - **提示词配置**：`提示词/` 为各客户端全局规则 / 提示词源文件，按需复制到对应客户端的配置路径（如 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.dsh/AGENTS.md`）。
-- **Skill 插件**：`SuperWork/`、`SuperLite/` 各是独立 skill 包（v2.0.0 起不再带平台清单 `.claude-plugin/` 等）。用法：把 `skills/` 内容复制进各 agent 自己的 skills 文件夹（DSH/Claude Code/Codex/Cursor/opencode 均自动扫描 SKILL.md）。如需走 `claude plugin install` 流程，自行补回对应 `plugin.json` 即可。
+- **Skill 插件**：`SuperWork/`、`SuperLite/`、`SuperOffice/` 各是独立 skill 包（v2.0.0 起不再带平台清单 `.claude-plugin/` 等）。用法：把 `skills/` 内容复制进各 agent 自己的 skills 文件夹（DSH/Claude Code/Codex/Cursor/opencode 均自动扫描 SKILL.md）。如需走 `claude plugin install` 流程，自行补回对应 `plugin.json` 即可。
 - **MCP Server**：`FastGraph-MCP/`、`Hound-MCP/`、`DeepEye-MCP/` 为 Python 包源码，本仓库为其镜像收录，开发与发布以各自独立仓库为准。安装方式见各子目录 README（`pip install .` 或 `pip install -e .`）。其中 **`Hound-MCP/` 是 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch) 的二创**、**`DeepEye-MCP/` 是 [Favio8/deepeye](https://github.com/Favio8/deepeye) 的二创**（上游均为 MIT，原始版权归各自原作者；完整声明见各子目录 `README.md` 的「致谢」段与 `LICENSE`）。
 - **Agent Skill**：`chaoxing-tasker/` 为单个 `SKILL.md`，放入对应客户端的 skills 目录即可使用；`find-extensions/` 为 `SKILL.md` + `references/`（含 `search.mjs`，需 Node 运行），整体放入 skills 目录即可使用。
 - 各子目录保留其原有的 README、依赖声明、忽略规则与第三方许可说明（如 `Hound-MCP/LICENSE`、`Hound-MCP/NOTICE.ddgs.txt`），使用前请一并阅读。

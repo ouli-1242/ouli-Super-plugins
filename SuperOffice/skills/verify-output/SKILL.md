@@ -1,6 +1,6 @@
 ---
 name: verify-output
-description: Use BEFORE claiming any office deliverable is ready, or before sending, printing, or submitting it - "文件做好了吗", "检查一下能不能交", before emailing an attachment, printing, or submitting a form. Requires fresh read-back evidence per artifact type; a file you wrote but never reopened does not count. NOT for reviewing someone else's material (doc-review), NOT for mid-work format checks (that belongs to the verb skill doing the work).
+description: Use BEFORE claiming any office deliverable is ready, or before sending, printing, or submitting it - "文件做好了吗", "检查一下能不能交", before emailing an attachment, printing, or submitting a form. NOT for reviewing someone else's material (doc-review), NOT for mid-work format checks (that belongs to the verb skill doing the work).
 ---
 
 # Verify Output — evidence before handover
@@ -22,13 +22,13 @@ Run the checks **in this turn**, as commands with visible output. "我检查过�
 
 ## The residual-gaps note
 
-Deliverables ship with an honest edge: a short list of what remains `[待核实]` (data the user must confirm, names to double-check, OCR spots on the 人工确认清单). A deliverable with declared gaps is complete; a deliverable that hides its gaps is a liability with a clean surface. Check there are no **undelared** `[待核实]` markers left from drafting that should have been resolved or declared.
+Deliverables ship with an honest edge: a short list of what remains `[待核实]` (data the user must confirm, names to double-check, OCR spots on the 人工确认清单). A deliverable with declared gaps is complete; a deliverable that hides its gaps is a liability with a clean surface. Check there are no **undeclared** `[待核实]` markers left from drafting that should have been resolved or declared.
 
 ## Deliver step (when the ask includes sending)
 
 - **Email**: draft it — recipient, subject, attachment names checked against the verified files — but sending happens on the user's explicit go unless they said otherwise. Attachment names match the verified artifacts exactly (yesterday's version is the classic failure).
 - **Print**: print settings (range, copies, duplex, paper) confirmed with the user for anything beyond trivial.
-- **IM channels** (Feishu/WeCom/DingTalk): configured per `office-mcp-setup`; sending still needs the user's go.
+- **IM channels** (Feishu/WeCom/DingTalk): only if configured — pending in this version of the catalog; sending still needs the user's go.
 
 ## Red flags — all of these mean: stop and actually verify
 
