@@ -112,7 +112,13 @@ The Iron Law applies to claims about ANY work, not just code: re-read the docume
 
 ## Red-Team Self-Check (before declaring done)
 
-Once verification passes, before any completion claim, answer **out loud**: how could this be wrong? (untested branch, mocked dependency, a number not re-checked against its source). Name what you did NOT verify — it goes into the deliverable's or handoff's 诚实边界, not buried. If you can't answer, you checked a box, not verified.
+Once verification passes, before any completion claim, adopt the adversary's stance and answer **out loud**:
+
+- **How could this be wrong?** — what assumption did the green test NOT cover? (untested branch, mocked dependency, fixture that doesn't match real input, a number not re-checked against its source)
+- **What did I NOT verify?** — name it explicitly; it goes into the deliverable's or handoff's 诚实边界, not buried.
+- **What would break in real use?** — edge cases the checks so far don't model (for non-code deliverables: the reader who wasn't in the room, the number quoted out of context).
+
+If you cannot answer these, you haven't verified — you've checked a box. An honest "I don't know" goes into the 诚实边界, not buried.
 
 ## When To Apply
 

@@ -31,10 +31,11 @@ The Skill tool takes one skill per call. A stage needing two skills is two calls
 | — Terminology / ADR | "统一术语", "记个架构决策", ubiquitous language | `domain-modeling` |
 | — Research primary sources | "查一下文档", "这个 API 怎么用", "research X" | `research` |
 | — Create/edit a skill | "加个 skill", "改一下这个 skill 的触发", "new skill" | `writing-skills` |
+| — Retrospective on a session | "复盘", "retro", "这次会话哪里可改进", after an incident or a merge | `writing-skills` (Retro Mode) |
 | — Set up / maintain doc index | "建个文档导航", "整理一下文档", first artifact needs a home | `doc-index` |
 | — Session handoff | "交接", "handoff", "压缩会话" (user-invoked: `/handoff`) | user runs it |
 
-Manual-trigger only (never auto-invoke): `handoff`. `grilling`'s With-Docs Mode (grill + domain-modeling together) also fires only on explicit user request.
+Manual-trigger only (never auto-invoke): `handoff`. `grilling`'s With-Docs Mode (grill + domain-modeling together) and `writing-skills`' Retro Mode (session retrospective) also fire only on explicit user request.
 
 **Stage overlap resolution:** a bug report that is really a feature request in disguise routes to `brainstorming`; a "review my approach" question before any code exists routes to `grilling`; stages 3 and 4 split on whether a plan document exists — a written plan routes to `executing-plans` (which calls `tdd` inside each task), a direct instruction with no plan routes to `tdd` directly; stage 4 never skips because the task "seems simple" — simplicity scales the ceremony inside the skill, not the routing decision.
 

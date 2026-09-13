@@ -1,6 +1,6 @@
 ---
 name: writing
-description: Use when creating any written deliverable - documents, plans, reports, analyses, emails, config files, READMEs. "帮我写", "写个文档", "做个计划", "整理个方案", "draft", "write up". Confirms purpose and audience first, outlines before prose for non-trivial pieces. NOT for code (tdd), NOT for stress-testing an existing plan (grilling).
+description: Use when creating any written deliverable - documents, plans, reports, analyses, emails, config files, READMEs - or turning messy material into a structured one (总结文章、会议纪要、整理聊天记录成要点、翻译成文). "帮我写", "写个文档", "做个计划", "总结一下这篇", "整理一下这个聊天记录", "draft", "write up". Confirms purpose and audience first, outlines before prose for non-trivial pieces. NOT for code (tdd), NOT for stress-testing an existing plan (grilling).
 ---
 
 # Writing
@@ -15,6 +15,10 @@ Before writing any deliverable, know **why it exists and who reads it**. If eith
 2. **Outline first (non-trivial pieces)** — for anything longer than a few paragraphs, present the section skeleton and get a nod before filling it in. For small pieces (a short email, a config file, a one-page note), draft directly.
 3. **Draft to the outline** — one section at a time. No gold-plating: the length the purpose demands, not more.
 4. **Self-review** — re-read against the purpose: does every section serve it? Is anything missing the reader will need? Cut what doesn't serve.
+
+## From messy material (总结 / 纪要 mode)
+
+When the input is someone else's mess — a transcript, chat log, email thread, long article, scattered notes — and the ask is 总结 / 整理 / 纪要, the deliverable is **extraction, not creation**. Read the source fully once before extracting anything; every claim carries a source anchor (timestamp / sender / page); names, numbers, and dates are copied exactly, never normalized from memory. Anything inaudible or ambiguous → `[待确认]` with what to confirm — never filled from imagination. Action items get owner + deadline, or "期限待定" — an item without an owner is a wish. A summary has a reader and a length limit; fix both before compressing.
 
 ## Plans specifically
 

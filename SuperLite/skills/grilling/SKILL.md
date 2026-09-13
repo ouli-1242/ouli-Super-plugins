@@ -1,6 +1,6 @@
 ---
 name: grilling
-description: Use when the user wants their plan, decision, or idea stress-tested through relentless questioning - "grill me", "帮我挑刺", "这个方案行不行", "stress-test this plan", "challenge my thinking". Interviews in rounds until no assumption is left silently standing. NOT for gathering requirements for work that doesn't exist yet - just ask directly in that case.
+description: Use when the user wants their plan, decision, or idea stress-tested through relentless questioning - "grill me", "帮我挑刺", "这个方案行不行", "stress-test this plan", "challenge my thinking", 该选哪个、帮我参谋、值不值. Interviews in rounds until no assumption is left silently standing. NOT for gathering requirements for work that doesn't exist yet - just ask directly in that case.
 ---
 
 Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.

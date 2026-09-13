@@ -1,6 +1,6 @@
 ---
 name: writing-skills
-description: Use when creating a new skill, editing an existing skill, or verifying a skill works before deployment - "加个 skill", "写个 skill", "改一下这个 skill 的触发", "optimize the description". Applies TDD to skill documents - test the trigger first, then write. NOT for writing project docs, READMEs, or prompt templates for one-off use.
+description: Use when creating a new skill, editing an existing skill, verifying a skill works before deployment, or the user explicitly requests a session retrospective - "加个 skill", "写个 skill", "改一下这个 skill 的触发", "optimize the description", "复盘", "retro". Applies TDD to skill documents - test the trigger first, then write. NOT for writing project docs, READMEs, or prompt templates for one-off use.
 ---
 
 # Writing Skills
@@ -49,6 +49,7 @@ A description that summarizes the workflow makes agents follow the description i
 - Negative exclusions: name the neighboring skill that handles the cases you DON'T want ("NOT for bug reports (use diagnosing-bugs)")
 - `name`: verb-first, hyphens only (`executing-plans`, not `plan-execution`)
 - Frontmatter ≤ 1024 characters; body ≤ 8 KB (hard truncation on some harnesses — push depth into `references/`)
+- Any always-loaded agent doc (`AGENTS.md`/`CLAUDE.md` lines, pointer wording, what to disclose vs inline): `references/agent-docs.md`
 
 ### 3. Token efficiency
 
@@ -93,6 +94,10 @@ Skills that enforce discipline must resist rationalization. Agents find loophole
 ## Common Rationalizations
 
 Excuses for skipping the failing-test-first gate, with counters: `references/rationalizations.md`.
+
+## Retro Mode (session retrospective)
+
+Explicit user request only ("复盘", "retro", "这次会话哪里可改进") — never self-invoked after ordinary tasks. Improves the agent's **environment** for future runs, not the code: full process and the seven-category checklist live in `references/retro.md`. Implement each approved change through this skill's discipline — an AGENTS.md line, a review rule, or a skill edit is an edit to an existing skill, so the Iron Law applies.
 
 ## Checklist
 

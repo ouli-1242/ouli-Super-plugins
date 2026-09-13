@@ -25,7 +25,7 @@ A **seam** is the public boundary you test at: the interface where you observe b
 
 Ask: "What's the public interface, and which seams should we test?"
 
-When the shape of that interface is itself in question — how deep the module is, where the seam belongs, what the interface should expose — agree the module boundary with the user before testing anything: sketch the public surface in chat, confirm it, then treat it as the seam. Don't write tests against an interface that is still being reshaped.
+When the shape of that interface is itself in question — how deep the module is, where the seam belongs, what the interface should expose — agree the module boundary with the user before testing anything: sketch the public surface in chat, confirm it, then treat it as the seam. Don't write tests against an interface that is still being reshaped. Vocabulary for that conversation — deep module, interface, depth, seam, adapter, leverage, locality — is defined in [deep-modules.md](deep-modules.md); use those terms exactly.
 
 ## Anti-patterns
 

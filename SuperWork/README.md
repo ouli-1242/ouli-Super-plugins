@@ -6,6 +6,52 @@ Ouli 的个人 skill 组合包（plugin）。从 [superpowers](https://github.co
 编写、分支收尾、冲突解决、文档导航），基于全局 `AGENTS.md` 的
 原则组合，按需触发，不接管对话。
 
+## v2.1.0 吸收上游新增能力（retro / writing-for-agents / codebase-design）
+
+上游两库全量重扫：superpowers 14 个 skill 零新增（全部 v1.3.0 已裁决）；mattpocock/skills 重组为
+engineering / productivity / in-progress / misc / deprecated 五分类，engineering 全是已裁决项，
+增量在新分类里。三个吸收、其余拒绝，且**均不新增 skill 目录**（守住 17 个的发现位数量）：
+
+- **retro → 并入 `writing-skills`（Retro Mode）**。retro（mattpocock，in-progress，作者自标
+  STUB）对会话做环境复盘：导航 / 自动化检查 / 评审规则 / 常驻 steering 文件 / 工具经济性 /
+  no-ops / 信息可达性七类候选，按严重度排列后逐项实施。补上链条终点缺口：merge 之后没有
+  学习回路。改造点：素材源从"翻会话日志"改为优先读 `docs/` 脊柱产物（日志/审查/交接/计划
+  复选框/git log）；实施环节回接 writing-skills 自己的铁律（改 AGENTS.md 行、评审规则、skill
+  正文都算编辑既有 skill，先测后写）；补充"实施角色上下文压力最大、评审角色最小，标准执法
+  推给评审、机械可查推给自动化"的排序原则。七类清单与排序原则在
+  `writing-skills/references/retro.md`，正文只留三步骨架与显式请求限定（同 grilling
+  With-Docs Mode 惯例：仅用户点名"复盘/retro"时启用，路由表加对应行）。
+- **writing-for-agents → 吸收为 `writing-skills/references/agent-docs.md`**。context pointer
+  （措辞决定触发可靠性，front-load 首词、每分支一个触发词）、双负载（context load vs
+  cognitive load）、信息层级（steps / in-file reference / disclosed reference 三层 +
+  progressive disclosure + co-location + sprawl）、完成判据（clarity + demand）、leading
+  words（含 negation 失效模式）、修剪纪律、调用方式选择（model-invoked vs user-invoked 的
+  负载交换）与 router skill 一节（映射到 superwork：新 skill 登记路由表而非自立路由）。
+  不独立成 skill 的理由：触发面与 writing-skills 正面相撞（都认领"写 skill / 写 AGENTS.md"）。
+- **codebase-design → 吸收为 `tdd/deep-modules.md`**。深模块词汇表（module / interface /
+  implementation / depth / seam / adapter / leverage / locality，Ousterhout + Feathers 体系）、
+  deep vs shallow、四原则（删除测试、接口即测试面、两个 adapter 才是真 seam 等）、可测试性
+  设计三则、被拒框架。挂进 tdd 的 Seams 小节（"接口形状本身待定"段落）——seam 确认纪律
+  v1.1.0 就在，缺的正是这套词汇。不上游的 DEEPENING.md / DESIGN-IT-TWICE.md 两个延伸文件。
+  不独立成 skill 的理由：触发面会与 brainstorming 设计阶段抢领地（独占病前科）；作为 tdd 的
+  词汇参考在 seam 确认时刻按需加载，零新增发现位。brainstorming 正文不加引用——设计阶段
+  的模块决策到 tdd 的 seam 确认时还会再过一遍，避免跨 skill 文件引用。
+
+**拒绝项**（沿用 v1.3.0 裁决基准）：`implement-spec`（worktree + 子代理并发编排，
+executing-plans 已覆盖编排层）；`claude-handoff`（绑死 `claude --bg` 机制）；`ask-matt`
+（路由器，superwork 元 skill 等价物）；`grill-me`（无工作区版 grilling）；`loop-me` / `teach`
+/ `writing-beats` / `writing-fragments` / `writing-shape`（个人工作流、教学、写作工坊，非编码
+生命周期域）；`misc/` 四件套（git-guardrails、setup-pre-commit 等，环境配置基础设施，同
+v1.2.0 拒 ECC infra 理由）；`to-questionnaire`（决策问卷，同 wizard 的"人机向导小众"）；
+`wait-what`（一句话复述重置，可并入 domain-modeling 当模式，不值得独立发现位）。
+
+两个来源之外的 2026 生态扫描（Firecrawl / Snyk 榜单、awesomeskill.ai、addyosmani 重访）：
+主流仍是领域型 / 质量属性型 skill，属 v1.3.0 已划出范围，无值得破例的生命周期纪律来源。
+
+已收录 skill 与上游存在漂移（tdd / code-review / diagnosing-bugs 等 1–4 个文件不等），抽样
+核对均为本地定制（description 重写、中文文档约定），无需紧急回并；diagnosing-bugs 上游改过
+`hitl-loop.template.sh`，下次升版本时人工比对。
+
 ## v2.0.0 仓库精简 + 中文文档约定重构
 
 两件事：
@@ -142,6 +188,10 @@ skill 调用难、只会命中 brainstorming 的根因是：模型每轮只看�
 - `writing-skills`（v1.2.0，superpowers）— 给 skill 做 TDD：description 只写
   触发条件不写流程（SDO 原则）、RED-GREEN-REFACTOR、按失败类型选形式
   （禁令/配方/结构槽/条件句）、堵合理化漏洞。新增或修改任何 skill 前必读。
+  v2.1.0 起带 **Retro Mode**（会话环境复盘，七类清单见
+  `references/retro.md`，仅显式请求触发）与 `references/agent-docs.md`
+  （agent 文档写作：context pointer、双负载、信息层级、leading words，
+  吸收自 matt writing-for-agents）。
 - `finishing-a-development-branch`（v1.3.0，superpowers）— 工作完成后的
   集成决策：验证全量测试 → 确认 base branch → merge/PR/keep 三选菜单 →
   合并结果重跑测试；绝不自动丢弃，丢弃需逐字确认 "discard"。
@@ -170,7 +220,9 @@ skill 调用难、只会命中 brainstorming 的根因是：模型每轮只看�
 ### 实现与调试
 
 - `tdd` — 红→绿→重构。垂直切片、单缝测试、测试先行防过度实现。附
-  `tests.md`/`mocking.md` 参考。
+  `tests.md`/`mocking.md` 参考；v2.1.0 起另附 `deep-modules.md`（深模块
+  词汇表：module/interface/seam/depth/leverage/locality，吸收自 matt
+  codebase-design，供 Seams 小节的接口形状确认按需加载）。
 - `diagnosing-bugs` — 硬 bug 诊断循环：先建立 tight feedback loop 再修，
   修复必须带回归测试，拒绝臆测。
 
@@ -242,6 +294,15 @@ SuperWork\
 
 以下文件相对源仓库有本地定制，从源仓库更新时需要人工合并（不要直接覆盖）：
 
+- v2.1.0 新增：`skills/writing-skills/references/retro.md`（matt retro 改造：
+  素材源改为 docs/ 脊柱产物优先、实施环节回接铁律、补实施/评审上下文压力
+  排序原则）；`skills/writing-skills/references/agent-docs.md`（matt
+  writing-for-agents + SKILL-MECHANICS 吸收，router 一节映射到 superwork）；
+  `skills/tdd/deep-modules.md`（matt codebase-design 吸收，去
+  DEEPENING/DESIGN-IT-TWICE 延伸引用）。改 `writing-skills/SKILL.md`
+  （description 吸收复盘触发词 + Retro Mode 小节 + agent-docs 指针）、
+  `tdd/SKILL.md`（Seams 小节加深模块词汇指针）、元 skill（路由表加复盘行 +
+  manual-trigger 说明加 Retro Mode）
 - v1.4.0：删除 `skills/grill-with-docs/`（薄壳并入 grilling）；grilling 加
   With-Docs Mode 小节并重写 description（吸收 grill-with-docs 触发词）；
   domain-modeling / 元 skill / 四个清单 / README / CLAUDE.md 同步去引用；

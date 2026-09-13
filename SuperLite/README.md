@@ -9,6 +9,25 @@ Handoffs 网与红旗表（9 个 skill 间转移极少且已内嵌正文）。
 固定上下文成本 ~1000 tokens，典型会话（含路由器加载）~1800 tokens，约为
 SuperWork 的 45%。
 
+## v2.2.0 日常化（更轻量灵活）
+
+- **superlite 路由表日常优先**：写作/查证/决策三行提到最前并扩日常触发词；description 定位改为"daily use and simple projects"。
+- **纪律 #4 改条件式**：有 `docs/` 脊柱的项目才落盘登记；日常一次性产物（总结、草稿邮件、小对比）留聊天，除非用户要求保存——不为临时输出造仪式。
+- **writing 吸收「整理材料」模式**（lite 版 doc-intake，SuperWork v1.4.0 薄壳合并的同一手法）：总结/纪要/整理聊天记录由 writing 承接——溯源抽取、逐字引述、`[待确认]`、行动项必有负责人。**不加新 skill，保持 9+1**。
+- **research/grilling 触发词扩到日常**（查攻略/价格对比；该选哪个/帮我参谋）；research 产出分流：项目落盘、日常进聊天。
+- **豁免表扩日常**：快速总结、一句话翻译、"这俩有啥区别"——直接答，不路由不仪式。
+
+## v2.1.0 同步 SuperWork
+
+把 SuperWork v2.1.0 的内容增量移植过来（lite 适配层保留：套件名、"缺位 skill 直接问用户"的兜底措辞不动）：
+
+- **tdd**：新增 `deep-modules.md`（深模块词汇表：module/interface/seam/depth/leverage/locality，SuperWork v2.1.0 吸收自 mattpocock codebase-design）+ Seams 小节挂钩。
+- **verification-before-completion**：红队自查从单段扩为三问（怎么错 / 没验证什么 / 真实使用会坏什么），诚实边界落点保持 lite 约定（交付物/交接，无 日志/）；`Non-Code Deliverables` 一节保留（lite 的泛化定位）。
+- **doc-index**：补实验记录六段结构（`docs/实验/`：假设/设置/指标/数据/结论/诚实边界；负结果照实记、合成数据不得宣称真实准确率、引用前重跑）。
+- **superlite 元 skill**：纪律 #5 加 偏离声明（实际做了 vs 要求/计划）。
+- **不移植**（依赖 SuperWork 专属 skill 或属于其领地）：grilling 的 With-Docs Mode（需 domain-modeling）、code-review 的 finishing-a-development-branch 排除句、tdd description 的 brainstorming/executing-plans 排除句（SuperLite 无这些 skill，保持"直接问用户"兜底）、writing-skills 的 Retro Mode（无此 skill）。
+- 定位边界不变：SuperLite 保持 9 + 1 结构，不扩容。
+
 ## v2.0.0 同步 SuperWork
 
 按维护契约把 SuperWork v2.0.0 的中文文档约定同步过来（lite 裁剪版）：
