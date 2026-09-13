@@ -6,6 +6,17 @@ Ouli 的个人 skill 组合包（plugin）。从 [superpowers](https://github.co
 编写、分支收尾、冲突解决、文档导航），基于全局 `AGENTS.md` 的
 原则组合，按需触发，不接管对话。
 
+## v2.2.0 多端通用打包（一个源 + 两个派生）
+
+让同一套 skill 在 11 个 harness 上都能被可靠触发，并消灭副本漂移：
+
+- **`agents-skills/` 是唯一源**：frontmatter 只留 `name` + `description`（Claude Code 只允许 6 个字段，多写 `argument-hint` 会直接报错；本包历史的该字段已移除）；description 单行加双引号——**未加引号的 `": "` 会被严格 YAML 判为嵌套映射，整个 skill 被静默丢弃**，本包曾有 3 个中招（含路由器）。
+- **`codex-skills/`**：同内容 + Codex 专属 `agents/openai.yaml`；`handoff` 等标记 `allow_implicit_invocation: false`（不该自动触发）。此前该文件只有部分 skill 有、且与正文自相矛盾，现已统一生成。
+- **`zcode-skills/`**：ZCode 官方文档写明每轮只把描述的前 **250 字符**注入上下文，故派生短版（保留中文锚点），由构建脚本自动生成、不手工维护。
+- **描述预算**：长描述全部 ≤500 字符（DSH 目录截断线，实测最长 486），且含中文触发锚点；各端上限（Claude 1536 / Codex 1024 / opencode 1024 / Qoder 1024）均满足。
+- **新增工具**：`scripts/descriptions.json`（描述唯一源）、`apply-descriptions.cjs`、`build-agent-folders.cjs`、`install-skills.ps1`（多端路径 + junction 安装）、`validate-multi.ps1`（多端合规 + 跨包同名检测）、`normalize-skills.ps1`。旧的 `skills/` + `scripts/validate.ps1` 已合并删除。
+- **实测修复**：7 个 skill 曾因 YAML 语法在 DSH 上完全不可见；转义顺序 bug 会让描述逐次劣化——均已修复并回归验证（3 包 × 3 文件夹共 117 个 SKILL.md 零问题）。
+
 ## v2.1.0 吸收上游新增能力（retro / writing-for-agents / codebase-design）
 
 上游两库全量重扫：superpowers 14 个 skill 零新增（全部 v1.3.0 已裁决）；mattpocock/skills 重组为
@@ -88,7 +99,7 @@ v1.2.0 拒 ECC infra 理由）；`to-questionnaire`（决策问卷，同 wizard 
 - **尺寸**：diagnosing-bugs 挪"无法建环"小节进 references（原 8192 字节
   正好卡 8KB 线，无编辑余量）
 
-已知未修：openai.yaml 覆盖 7/16（Codex UI 元数据，功能可选，待统一补齐）。
+已知未修：openai.yaml 覆盖 7/17（Codex UI 元数据，功能可选，待统一补齐）。
 
 ## v1.4.0 精简合并
 
@@ -261,27 +272,73 @@ agent 不读 README。每次会话它会扫描 skills 并把每个 SKILL.md 的
 逻辑已内置于 `skills/superwork/SKILL.md` 元 skill——不要再往 README 或
 CLAUDE.md 里堆方法论（模型看不到它们）。
 
-## 安装
+## 安装（多端：一个通用源 + 两个派生）
 
-**把 `skills/` 内容直接复制进各 agent 自己的 skills 文件夹**——agent 自动扫描 SKILL.md，无需平台清单。
+**`agents-skills/` 是唯一源**（长描述，只含 `name` + `description`），没有第二份等价副本。另外两个文件夹由它派生：
 
-| 工具        | skills 目录                    | 操作                          |
-| ----------- | ------------------------------ | ----------------------------- |
-| DSH         | `~/.dsh/skills/`               | 复制 `skills/*` 子目录到此处  |
-| Claude Code | `~/.claude/skills/`            | 同上                          |
-| Codex CLI   | `~/.codex/skills/`             | 同上                          |
-| Cursor      | `~/.cursor/skills/`            | 同上                          |
-| opencode    | 见 opencode 自身的 skills 路径 | 同上                          |
+| 文件夹 | 内容 | 给谁用 |
+|---|---|---|
+| **`agents-skills/`** | **源：长描述原样** | DSH、Claude Code、Codex、Cursor、Qoder、Gemini CLI、opencode、CodeBuddy、Kimi、Grok——它们都只读 `name` + `description`。其中多家直接扫描共享根 `~/.agents/skills/`，装一次多端可见 |
+| `codex-skills/` | 派生：同上 + `agents/openai.yaml` | Codex 专属：UI 元数据与调用策略（`policy.allow_implicit_invocation`）。Codex 在 SKILL.md 里没有别的端不认的字段，所以只差这一个可选文件 |
+| `zcode-skills/` | 派生：**短描述**（≤250 字符，保留中文锚点） | ZCode 专属：官方文档写明每轮只把描述的前 **250 字符**注入上下文，超出部分模型看不到 |
 
-> v2.0.0 前本仓库带各平台清单（`.claude-plugin/` 等），仅"装插件"流程需要；手动复制场景纯冗余，已删除。若要恢复"装插件"分发，重新加对应 `plugin.json` 即可。
+```powershell
+node scripts\apply-descriptions.cjs --write   # descriptions.json -> agents-skills/*/SKILL.md
+node scripts\build-agent-folders.cjs          # agents-skills/ -> zcode-skills/ + codex-skills/
+node scripts\build-agent-folders.cjs --check  # 只校验是否需要重建
+```
+
+改内容只改 `agents-skills/`（或先改 `scripts/descriptions.json` 再跑 apply）；**派生文件夹永远不要手改**，下次构建会被覆盖。
+
+### 安装到各 agent
+
+```powershell
+pwsh -File scripts\install-skills.ps1 -Agent claude,dsh -DryRun   # 预览
+pwsh -File scripts\install-skills.ps1 -Agent claude,dsh,codex     # 默认 junction 链接
+pwsh -File scripts\install-skills.ps1 -Agent zcode                # 装派生的短描述版
+```
+
+已核实路径见 `agents.json`（DSH `~/.dsh/skills`、Claude Code `~/.claude/skills`、Codex `~/.codex/skills`、ZCode `~/.zcode/skills`、Qoder `~/.qoder-cn/skills`、opencode `~/.config/opencode/skills`、CodeBuddy `~/.codebuddy/skills`、共享根 `~/.agents/skills`；Cursor / Gemini / Grok / Kimi 走共享根或各自的 `~/.<name>/skills`）。
+
+### 多端兼容硬规则（改任何 SKILL.md 前必读）
+
+| 规则 | 为什么 |
+|---|---|
+| frontmatter 只留 `name` + `description` | **Claude Code 只允许 6 个字段**（含 `allowed-tools`/`license`/`metadata`/`compatibility`），多写 `argument-hint` 之类会直接报错；本包历史上曾带过 |
+| description **单行 + 双引号** | 未加引号的 `: ` 被严格 YAML 判为嵌套映射，**整个 skill 被静默丢弃**（本包曾有 3 个中招，含路由器） |
+| 长描述 ≤ 1024 字符 | 各端公布的上限（opencode/Qoder/ZCode 均 1024）；本包当前最长 514 |
+| 短描述 ≤ 250 字符且中文锚点在前 220 | ZCode 的注入窗口；由构建脚本从长描述派生，不手工维护 |
+| description 必须含中文触发锚点 | 你的输入以中文为主；锚点必须在值里（不能拆到单独字段） |
+| 每个文件恰好一个 H1 | 部分 harness 用 H1 渲染标题 |
+| `name` = 目录名、kebab-case、≤64 | DSH 强制 regex，opencode 另有 1–64 与禁止 `--` 的规则 |
+| UTF-8 无 BOM | PowerShell 5.1 与部分解析器对 BOM 敏感 |
+
+平台专属增强一律不进 frontmatter；Codex 的放在 `codex-skills/<skill>/agents/openai.yaml`，缺失不影响其他端。
 
 ### 仓库结构
 
 ```
 SuperWork\
-├── skills\                # 17 个 skill（各 agent 共用）
-├── scripts\validate.ps1   # 维护校验（升级前必跑）
+├── agents-skills\             # ★ 唯一源：17 个 skill 的长描述（11 端通用）
+├── zcode-skills\              # 派生：短描述（≤250 字符，ZCode 专属）
+├── codex-skills\              # 派生：+ agents/openai.yaml（Codex 专属）
+├── agents.json                # 各 agent 的 skills 目录登记（安装器读它）
+├── bundle.json                # 装哪些 skill + Codex 策略/短描述表
+├── scripts\
+│   ├── descriptions.json      # 描述唯一源（长）；改这里再 apply
+│   ├── apply-descriptions.cjs # descriptions.json -> agents-skills/*/SKILL.md
+│   ├── build-agent-folders.cjs# agents-skills/ -> zcode-skills/ + codex-skills/
+│   ├── install-skills.ps1     # 安装器（默认 junction 链接）
+│   ├── validate-multi.ps1     # 多端合规校验（升级前必跑）
+│   ├── normalize-skills.ps1   # frontmatter/H1 规范化（幂等）
 └── README.md
+```
+
+```powershell
+node scripts\apply-descriptions.cjs --write          # 描述改动落地到 agents-skills/
+node scripts\build-agent-folders.cjs                 # 重建 zcode-skills/ + codex-skills/
+node scripts\build-agent-folders.cjs --check         # 只校验是否需要重建
+pwsh -File scripts\validate-multi.ps1 -AllTargets    # 多端合规（含跨包同名检测）
 ```
 
 ## 平台依赖
@@ -349,8 +406,7 @@ SuperWork\
 - v1.1.0：`CLAUDE.md`/`AGENTS.md` 精简为人类参考副本，权威路由迁入元 skill
 - 全部 12 个 SKILL.md 的 `description` 字段：统一优化触发时机（负向排除、
   先后顺序），这是 agent 决定加载哪个 skill 的依据
-- `brainstorming/SKILL.md`、`spec-document-reviewer-prompt.md`、
-  `visual-companion.md` — `docs/superpowers/specs/` → `docs/superwork/specs/`
+- `brainstorming/SKILL.md`、`visual-companion.md` — `docs/superpowers/specs/` → `docs/superwork/specs/`
   改名 + Windows 说明 + 删除 elements-of-style 引用
 - `writing-plans/SKILL.md` — 同上路径改名 + 执行备注（tdd → code-review → 验证）
 - `tdd/SKILL.md` — 删除 `/codebase-design` 引用（未收录），改为与用户先确认

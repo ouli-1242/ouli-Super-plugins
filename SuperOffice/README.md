@@ -7,6 +7,17 @@ Ouli 的通用办公 skill 组合包。与 [SuperWork](../SuperWork)（编码过
 - **document-skills（Anthropic 官方 docx/xlsx/pptx/pdf）是主引擎**：doc-revise / doc-review / form-fill / file-ops 的文件读写默认走它的 Python 路线。安装：Claude Code 插件市场，或从 [anthropics/skills](https://github.com/anthropics/skills) 复制对应目录。未安装时这些环节无法落地产物——`office-mcp-setup` 的诊断会提示。
 - **可选引擎**（由 `office-mcp-setup` 按需配置）：wps-cli（WPS 实时控制）、markitdown-mcp（批量解析）、glmocr-table（扫描件 OCR，需智谱 API key）。
 
+## v2.2.0 多端通用打包（一个源 + 两个派生）
+
+让同一套 skill 在 11 个 harness 上都能被可靠触发，并消灭副本漂移：
+
+- **`agents-skills/` 是唯一源**：frontmatter 只留 `name` + `description`（Claude Code 只允许 6 个字段，多写 `argument-hint` 会直接报错；本包历史的该字段已移除）；description 单行加双引号——**未加引号的 `": "` 会被严格 YAML 判为嵌套映射，整个 skill 被静默丢弃**，本包曾有 3 个中招（含路由器）。
+- **`codex-skills/`**：同内容 + Codex 专属 `agents/openai.yaml`；`handoff` 等标记 `allow_implicit_invocation: false`（不该自动触发）。此前该文件只有部分 skill 有、且与正文自相矛盾，现已统一生成。
+- **`zcode-skills/`**：ZCode 官方文档写明每轮只把描述的前 **250 字符**注入上下文，故派生短版（保留中文锚点），由构建脚本自动生成、不手工维护。
+- **描述预算**：长描述全部 ≤500 字符（DSH 目录截断线，实测最长 486），且含中文触发锚点；各端上限（Claude 1536 / Codex 1024 / opencode 1024 / Qoder 1024）均满足。
+- **新增工具**：`scripts/descriptions.json`（描述唯一源）、`apply-descriptions.cjs`、`build-agent-folders.cjs`、`install-skills.ps1`（多端路径 + junction 安装）、`validate-multi.ps1`（多端合规 + 跨包同名检测）、`normalize-skills.ps1`。旧的 `skills/` + `scripts/validate.ps1` 已合并删除。
+- **实测修复**：7 个 skill 曾因 YAML 语法在 DSH 上完全不可见；转义顺序 bug 会让描述逐次劣化——均已修复并回归验证（3 包 × 3 文件夹共 117 个 SKILL.md 零问题）。
+
 ## v1.0.1 对抗性审查修正
 
 三个独立审查代理红队后的修复：GLM-OCR 引擎补入 MCP 目录（此前 file-ops 引用了未收录的引擎——违反自家纪律 #1）；validate.ps1 增加两项真检查（Skill-tool 引用目标存在性、markdown 链接解析）；README 声明前置依赖 document-skills；版本残留 v0.1×3、计数 11/12 矛盾、undelared 拼写、双 H1、wps 验证命令（--version→version）、OfficeMCP RunPython 风险注、IM 通道 pending 措辞、doc-asset 幽灵纪律引用、路由表触发词与 description 对齐、PPT 产线断路（doc-draft 明确大纲→pptx/impress 落地）；office-mcp-setup / verify-output / wps-cli / superoffice 四条 description 按 SDO 修剪。
@@ -66,25 +77,47 @@ Ouli 的通用办公 skill 组合包。与 [SuperWork](../SuperWork)（编码过
 
 与 SuperWork 同构：agent 每次会话扫描 skills 目录，按 name + description 触发。`superoffice` 元 skill 在任何办公任务开始时路由到动词 skill；skill 间用 `Call the Skill tool with "X"` 显式转移（如 intake 的产物喂 draft，verify 的缺口退回原动词 skill）。
 
-## 安装
+## 安装（多端通用安装器）
 
-把 `skills/` 内容直接复制进各 agent 的 skills 文件夹：
+`scripts/install-skills.ps1` 按 `agents.json` 登记的各 agent skills 目录安装本包，**默认 junction 链接**（本包即唯一源，改一处即刻生效）。已核实路径：DSH `~/.dsh/skills`、Claude Code `~/.claude/skills`、Codex `~/.codex/skills`、`~/.agents/skills`；Cursor / opencode 标注未核实，默认跳过，确认后加 `-VerifyPaths`。
 
-| 工具 | skills 目录 |
-| --- | --- |
-| ZCode | `~/.zcode/skills/` |
-| Claude Code | `~/.claude/skills/` |
-| Codex CLI | `~/.codex/skills/` |
-| Cursor | `~/.cursor/skills/` |
+```powershell
+pwsh -File scripts\install-skills.ps1 -Agent claude,dsh -DryRun        # 预览
+pwsh -File scripts\install-skills.ps1 -Agent claude,dsh                # 10 个核心
+pwsh -File scripts\install-skills.ps1 -Agent claude -IncludeOptional   # 含 office-mcp-setup / wps-cli
+```
 
-## 仓库结构
+`bundle.json` 的 `optional` 列出依赖本机环境的两个 skill（`office-mcp-setup`、`wps-cli`）：不装不影响其余 10 个。SuperOffice 与另两包**无同名 skill**，可与任一方共存。
+
+### 多端兼容硬规则
+
+agent 只靠 `name` + `description` 发现 skill：frontmatter 只留这两个字段；description **单行 + 双引号**（未加引号的 `: ` 会让整个 skill 被静默丢弃）、≤ 500 字符、必含 `中文信号：` 锚点；每文件恰好一个 H1；`name` = 目录名且 kebab-case；UTF-8 无 BOM。
+
+### 仓库结构
 
 ```
 SuperOffice\
-├── skills\                # 12 个 skill（各 agent 共用）
-├── scripts\validate.ps1   # 维护校验（升级前必跑）
+├── skills\                    # 12 个 skill（各 agent 共用，唯一源）
+├── agents.json                # 各 agent 的 skills 目录登记
+├── bundle.json                # 核心 10 个 + 可选 2 个
+├── scripts\
+│   ├── install-skills.ps1     # 通用安装器（junction 默认）
+│   ├── validate-multi.ps1     # 多端合规校验（升级前必跑）
+│   ├── normalize-skills.ps1   # frontmatter/H1 规范化（幂等）
+│   └── validate.ps1           # 原有校验
 └── README.md
 ```
+
+## 安装（旧法：手工复制）
+
+把 `skills/` 内容直接复制进各 agent 的 skills 文件夹（会把包分叉成多份副本，建议改用安装器）：
+
+| 工具 | skills 目录 |
+| --- | --- |
+| DSH | `~/.dsh/skills/` |
+| Claude Code | `~/.claude/skills/` |
+| Codex CLI | `~/.codex/skills/` |
+| Cursor | `~/.cursor/skills/`（未核实） |
 
 ## 平台依赖与已知边界
 

@@ -9,6 +9,17 @@ Handoffs 网与红旗表（9 个 skill 间转移极少且已内嵌正文）。
 固定上下文成本 ~1000 tokens，典型会话（含路由器加载）~1800 tokens，约为
 SuperWork 的 45%。
 
+## v2.2.0 多端通用打包（一个源 + 两个派生）
+
+让同一套 skill 在 11 个 harness 上都能被可靠触发，并消灭副本漂移：
+
+- **`agents-skills/` 是唯一源**：frontmatter 只留 `name` + `description`（Claude Code 只允许 6 个字段，多写 `argument-hint` 会直接报错；本包历史的该字段已移除）；description 单行加双引号——**未加引号的 `": "` 会被严格 YAML 判为嵌套映射，整个 skill 被静默丢弃**，本包曾有 3 个中招（含路由器）。
+- **`codex-skills/`**：同内容 + Codex 专属 `agents/openai.yaml`；`handoff` 等标记 `allow_implicit_invocation: false`（不该自动触发）。此前该文件只有部分 skill 有、且与正文自相矛盾，现已统一生成。
+- **`zcode-skills/`**：ZCode 官方文档写明每轮只把描述的前 **250 字符**注入上下文，故派生短版（保留中文锚点），由构建脚本自动生成、不手工维护。
+- **描述预算**：长描述全部 ≤500 字符（DSH 目录截断线，实测最长 486），且含中文触发锚点；各端上限（Claude 1536 / Codex 1024 / opencode 1024 / Qoder 1024）均满足。
+- **新增工具**：`scripts/descriptions.json`（描述唯一源）、`apply-descriptions.cjs`、`build-agent-folders.cjs`、`install-skills.ps1`（多端路径 + junction 安装）、`validate-multi.ps1`（多端合规 + 跨包同名检测）、`normalize-skills.ps1`。旧的 `skills/` + `scripts/validate.ps1` 已合并删除。
+- **实测修复**：7 个 skill 曾因 YAML 语法在 DSH 上完全不可见；转义顺序 bug 会让描述逐次劣化——均已修复并回归验证（3 包 × 3 文件夹共 117 个 SKILL.md 零问题）。
+
 ## v2.2.1 handoff 开启自动调用
 
 `handoff` 移除 `disable-model-invocation`，description 重写为触发条件式：用户要求交接/压缩会话，或上下文将满且工作未完时自触发；普通任务收尾不触发。新增分档压缩线（≤256k 窗口 70/90、≤500k 60/75、1M 40/60）：start 线写好交接文档，hard 线写完并提示用户压缩——真实压缩由 harness 执行（auto-compact / /compact / 新会话），交接文档保证无损。
@@ -96,17 +107,47 @@ SuperWork 的 45%。
   到本包（复制 + 修剪跨引用）
 - 改动后跑 `powershell -File scripts/validate.ps1`
 
-## 安装
+## 安装（v2.2.0：多端通用安装器）
 
-**把 `skills/` 内容直接复制进各 agent 自己的 skills 文件夹**——agent 自动扫描 SKILL.md，无需平台清单（SuperLite 不带任何 manifest）。
+`scripts/install-skills.ps1` 按 `agents.json` 登记的各 agent skills 目录安装本包，**默认 junction 链接**（本包即唯一源，改一处即刻生效）。已核实路径：DSH `~/.dsh/skills`、Claude Code `~/.claude/skills`、Codex `~/.codex/skills`、`~/.agents/skills`；Cursor / opencode 标注未核实，默认跳过，确认后加 `-VerifyPaths`。
 
-| 工具        | skills 目录                     | 操作                          |
-| ----------- | ------------------------------- | ----------------------------- |
-| DSH         | `~/.dsh/skills/`                | 复制 `skills/*` 子目录到此处  |
-| Claude Code | `~/.claude/skills/`             | 同上                          |
-| Codex CLI   | `~/.codex/skills/`              | 同上                          |
-| Cursor      | `~/.cursor/skills/`             | 同上                          |
-| opencode    | 见 opencode 自身的 skills 路径  | 同上                          |
+```powershell
+pwsh -File scripts\install-skills.ps1 -Agent claude,dsh -DryRun   # 预览
+pwsh -File scripts\install-skills.ps1 -Agent claude,dsh,codex     # 安装
+pwsh -File scripts\install-skills.ps1 -Agent codex -Copy          # 独立副本
+```
+
+**不可与 SuperWork 同装**：8 个同名 skill（tdd / code-review / diagnosing-bugs / doc-index / grilling / handoff / research / verification-before-completion）在任何 harness 上都会静默遮蔽一个（DSH 只写一行宿主日志，模型侧无感知）。安装器会报告冲突；`bundle.json` 的 `conflictsWith` 记录该约束。
+
+### 多端兼容硬规则
+
+agent 只靠 `name` + `description` 发现 skill：frontmatter 只留这两个字段；description **单行 + 双引号**（未加引号的 `: ` 会让整个 skill 被静默丢弃）、≤ 500 字符、必含 `中文信号：` 锚点；每文件恰好一个 H1；`name` = 目录名且 kebab-case；UTF-8 无 BOM。
+
+### 仓库结构
+
+```
+SuperLite\
+├── skills\                    # 10 个 skill（唯一源）
+├── agents.json                # 各 agent 的 skills 目录登记
+├── scripts\
+│   ├── install-skills.ps1     # 通用安装器（junction 默认）
+│   ├── validate-multi.ps1     # 多端合规校验（升级前必跑）
+│   ├── normalize-skills.ps1   # frontmatter/H1 规范化（幂等）
+│   └── validate.ps1           # 原有校验
+└── README.md
+```
+
+## 安装（旧法：手工复制）
+
+**把 `skills/` 内容直接复制进各 agent 自己的 skills 文件夹**——agent 自动扫描 SKILL.md，无需平台清单（SuperLite 不带任何 manifest）。手工复制会产生分叉副本，建议改用上面的安装器。
+
+| 工具        | skills 目录                     |
+| ----------- | ------------------------------- |
+| DSH         | `~/.dsh/skills/`                |
+| Claude Code | `~/.claude/skills/`             |
+| Codex CLI   | `~/.codex/skills/`              |
+| Cursor      | `~/.cursor/skills/`（未核实）   |
+| opencode    | 见 opencode 自身的 skills 路径（未核实） |
 
 > v2.0.0 起 SuperLite 不再带平台清单；若要恢复"装插件"分发，重新加对应 `plugin.json` 即可。
 

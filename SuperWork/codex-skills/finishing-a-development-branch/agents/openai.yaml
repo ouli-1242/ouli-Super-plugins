@@ -1,0 +1,5 @@
+interface:
+  display_name: "Finishing A Development Branch"
+  short_description: "Decide how to integrate finished work"
+policy:
+  allow_implicit_invocation: false

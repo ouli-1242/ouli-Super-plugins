@@ -1,0 +1,28 @@
+{
+  "name": "SuperLite",
+  "description": "Everyday + simple-project pack: mini router + 9 skills. Do NOT install alongside SuperWork - 8 skill names collide. Generates agents-skills/ (one text for every SKILL.md harness) and codex-skills/ (+ agents/openai.yaml).",
+  "conflictsWith": [
+    "SuperWork"
+  ],
+  "skills": [
+    "superlite",
+    "writing",
+    "research",
+    "grilling",
+    "tdd",
+    "diagnosing-bugs",
+    "code-review",
+    "verification-before-completion",
+    "handoff",
+    "doc-index"
+  ],
+  "optional": [],
+  "codexExplicitOnly": [
+    "handoff",
+    "writing"
+  ],
+  "codexShortDescriptions": {
+    "handoff": "Compact a conversation into a handoff",
+    "writing": "Write any written deliverable"
+  }
+}
