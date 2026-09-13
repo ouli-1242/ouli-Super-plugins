@@ -33,7 +33,7 @@ The Skill tool takes one skill per call. A stage needing two skills is two calls
 | — Create/edit a skill | "加个 skill", "改一下这个 skill 的触发", "new skill" | `writing-skills` |
 | — Retrospective on a session | "复盘", "retro", "这次会话哪里可改进"（user asks — e.g. after an incident or a merge） | `writing-skills` (Retro Mode) |
 | — Set up / maintain doc index | "建个文档导航", "整理一下文档", first artifact needs a home | `doc-index` |
-| — Session handoff | "交接", "handoff", "压缩会话", "会话太长了", or context crossing the line (40% start / 60% forced) | `handoff` |
+| — Session handoff | "交接", "handoff", "压缩会话", "会话太长了", or context crossing its tier's compression line (tiers in handoff) | `handoff` |
 
 `handoff` may self-invoke when the context is nearly exhausted with unfinished work; otherwise it waits for the ask. Firing only on explicit user request: `grilling`'s With-Docs Mode (grill + domain-modeling together) and `writing-skills`' Retro Mode (session retrospective).
 

@@ -1,10 +1,25 @@
 ---
 name: handoff
-description: Use when the user asks to transfer or compress the session - "交接", "handoff", "压缩会话", "会话太长了" - or when context usage crosses the compression line: around 40% start the handoff unless a task is mid-flight, 60% is the hard ceiling even mid-task. Compresses the conversation into a handoff document another agent can continue from. NOT at ordinary task endings - finish the task and claim completion instead; NOT for summarizing documents or material (writing / doc-intake).
+description: Use when the user asks to transfer or compress the session - "交接", "handoff", "压缩会话", "会话太长了" - or when context usage crosses its tier's compression line, tiered by window size: ≤256k start 70% / force 90%; ≤500k start 60% / force 75%; ~1M start 40% / force 60%. Writing the handoff document is the agent's job; the actual context compaction is the harness's. NOT at ordinary task endings - finish the task and claim completion instead; NOT for summarizing documents or material (writing / doc-intake).
 argument-hint: "What will the next session be used for?"
 ---
 
-## Compression line（上下文压缩线）
+## Compression line（上下文压缩线，按窗口分档）
+
+| Context window | start（写好交接文档） | hard line（写完并提示用户压缩） |
+|---|---|---|
+| ≤256k | 70% | 90% |
+| ≤500k | 60% | 75% |
+| ~1M | 40% | 60% |
+
+**两层含义，必须分清**：
+
+- agent 能做的唯一准备是**写好交接文档**——这不是压缩本身，而是让随后的压缩无损。到 start 线就把它写好（任务进行中则先完成/打点），写完告诉用户「交接已就绪，可随时压缩」。
+- **真实的上下文压缩由 harness 执行**：自动 compact、用户的 /compact、或结束会话开新窗口。到 hard 线：立即写完文档（在途任务精确打点：已完成什么、做到哪一半、确切下一步、未提交变更），然后明确提示用户「现在就压缩或开新会话」。agent 无权也无力删掉自己的上下文，不要假装压缩发生过。
+
+百分比按窗口大小估算，永远不是精测——拿不准就早写。start 线的意义是让压缩随时无损；hard 线是给估算误差和突发长输入留的最后余量。
+
+
 
 - **~40% context**: if no task is mid-flight, run the handoff now — do not wait for the window to close. If a task is mid-flight, finish or checkpoint it first, then hand off.
 - **60% context — hard ceiling**: hand off regardless of state. Checkpoint the in-flight task precisely in the document (what is done, what is half-done, the exact next action, any uncommitted changes) so the next session resumes cleanly instead of doing archaeology.

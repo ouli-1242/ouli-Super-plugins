@@ -251,7 +251,8 @@ agent 不读 README。每次会话它会扫描 skills 并把每个 SKILL.md 的
 - **自动**：任务与某 skill 的 `description` 匹配时 agent 自行加载（如
   "帮我 debug 这个 bug" → `diagnosing-bugs`；description 带中英文触发词）
 - **显式与自动**：`handoff`（v2.1.1 起移除 disable-model-invocation）在用户要求交接或上下文
-  跨过压缩线时调用——约 40% 开始（任务进行中先完成/打点），60% 强制（文档内精确打点在途任务）；`grilling` 的 With-Docs Mode 也仅在明确点名时启用；
+  跨过分档压缩线时调用（≤256k 70/90、≤500k 60/75、1M 40/60）：start 线写好交接文档，hard 线写完
+  并提示用户压缩——真实压缩由 harness 执行，交接文档保证无损；`grilling` 的 With-Docs Mode 也仅在明确点名时启用；
   也可直接要求"用 X skill"
 - **断链恢复**：skill 之间用 `Call the Skill tool with "X"` 显式转移；会话
   中断后从磁盘产物（spec 状态行、plan 复选框、git log）重新定位阶段

@@ -22,7 +22,7 @@ Daily one-offs — a quick summary, a one-paragraph answer, a small comparison �
 | About to claim done (any deliverable - code, doc, analysis) | `verification-before-completion` |
 | Continue a written plan one step at a time - "按计划继续", "继续做第二步" | `tdd` for coding steps, `writing` for the rest |
 | Set up / maintain the project's doc index | `doc-index` |
-| Session handoff - "交接", "压缩会话", "会话太长了", or context crossing the line (40% start / 60% forced) | `handoff` |
+| Session handoff - "交接", "压缩会话", "会话太长了", or context crossing its tier's compression line (tiers in handoff) | `handoff` |
 
 **Overlap resolution:** "整理个方案" with no draft yet → `writing` (draft it first); an existing plan that needs holes poked → `grilling`; facts to verify before either → `research`. A bug fix with a clear path → `tdd` directly; cause unknown or first fix failed → `diagnosing-bugs`. A summary of someone else's material is `writing` in its From-messy-material mode — not `research`. "按计划继续 / 继续做第二步" is routed by step type: coding → `tdd`, documents → `writing`, facts to verify → `research`.
 
