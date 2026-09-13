@@ -9,7 +9,8 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | 子目录 | 插件名 | 版本 | 说明 |
 |---|---|---|---|
 | [`SuperWork/`](SuperWork/) | `superwork` | 2.1.0 | 全量精选 skill 组合包（17 个 skill）：TDD/debugging/code review/grilling/domain-modeling/verification + spec→plan→execute 全链条 + 文档导航 spine（docs/ 中文约定）；v2.1.0 吸收 retro 会话复盘 / agent 文档写作 / 深模块词汇 |
-| [`SuperLite/`](SuperLite/) | `superlite` | 2.2.0 | 日常轻量包（10 个 skill）：写作/总结/查证/决策 + TDD/debugging/review/verification + handoff/doc-index；日常一次性任务零仪式，固定成本约 SuperWork 的 53% || [`SuperOffice/`](SuperOffice/) | `superoffice` | 1.0.0 | 通用办公产物包（12 个 skill）：整理输入/起草/修改/审阅/数据汇总/文件手术/填表/产物验证/模板资产 + WPS CLI 与办公 MCP 使能；动词层架构，数字与引用真实性纪律 |
+| [`SuperLite/`](SuperLite/) | `superlite` | 2.2.0 | 日常轻量包（10 个 skill）：写作/总结/查证/决策 + TDD/debugging/review/verification + handoff/doc-index；日常一次性任务零仪式，固定成本约 SuperWork 的 53% |
+| [`SuperOffice/`](SuperOffice/) | `superoffice` | 1.0.0 | 通用办公产物包（12 个 skill）：整理输入/起草/修改/审阅/数据汇总/文件手术/填表/产物验证/模板资产 + WPS CLI 与办公 MCP 使能；动词层架构，数字与引用真实性纪律 |
 
 
 ### MCP Server（Python 包，同步自各自独立仓库）
