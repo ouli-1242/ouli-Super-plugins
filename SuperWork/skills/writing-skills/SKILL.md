@@ -46,6 +46,7 @@ A description that summarizes the workflow makes agents follow the description i
 - Start with "Use when..." (or "Use BEFORE..."); third person
 - Concrete triggers, symptoms, situations — describe the *problem*, not language-specific symptoms unless the skill is language-specific
 - Trigger exemplars in the user's actual speech: Chinese primary, plus code-switching tech terms they would actually say (review / debug / TDD / PR / ADR / MCP); no pure-English exemplar phrases a Chinese speaker would never utter (SuperWork convention)
+- Trigger granularity: one low-frequency anchor word + 2-3 short phrases (the user's actual words); a full scenario sentence only at an ambiguous boundary between neighboring skills. A trigger's value is its exclusivity — the probability that when this word appears, this skill SHOULD fire. Never a bare high-frequency verb (写/改/查 alone) — pair it or let the prose boundary carry the distinction
 - Negative exclusions: name the neighboring skill that handles the cases you DON'T want ("NOT for bug reports (use diagnosing-bugs)")
 - `name`: verb-first, hyphens only (`executing-plans`, not `plan-execution`)
 - Frontmatter ≤ 1024 characters; body ≤ 8 KB (hard truncation on some harnesses — push depth into `references/`)
