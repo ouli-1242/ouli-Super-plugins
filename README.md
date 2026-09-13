@@ -4,7 +4,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 
 ## 插件列表
 
-### Skill 插件（Claude Code Plugin）
+### Skill 插件（Agent Plugin）
 
 | 子目录 | 插件名 | 版本 | 说明 |
 |---|---|---|---|
