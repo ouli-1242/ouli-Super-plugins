@@ -1,25 +1,22 @@
 ---
 name: handoff
-description: "Use when the user asks to transfer or compress the session - 「交接」「handoff」「压缩会话」「会话太长了」 - or when context usage crosses its tier's compression line, tiered by window size: ≤256k start 70% / hard 90%; ≤500k 60% / 75%; ~1M 40% / 60%. 中文信号：「交接」「压缩会话」"
+description: "Use when the user wants to compress, transfer, or continue the session elsewhere - 「交接」「handoff」「压缩会话」「会话太长了」「开新会话」「换个会话继续」 - or when a harness compaction notice appears in the conversation. 中文信号：「交接」「压缩会话」「会话太长了」「开新会话」「换个会话继续」"
 ---
 # Handoff
 
 Ask the user one thing before writing: **what will the next session be used for?** The answer decides which state is worth carrying.
 
-## Compression line（上下文压缩线，按窗口分档）
+## 触发时机：只认 agent 能真实看到的信号
 
-| Context window | start（写好交接文档） | hard line（写完并提示用户压缩） |
-|---|---|---|
-| ≤256k | 70% | 90% |
-| ≤500k | 60% | 75% |
-| ~1M | 40% | 60% |
+agent **读不到**自己的上下文占用百分比，也没有估算它的可靠手段——任何"到达某百分比就自动触发"的设计都不成立，压缩提示不能依赖它。
 
-**两层含义，必须分清**：
+agent 真正能看到的触发信号只有三类：
 
-- agent 能做的唯一准备是**写好交接文档**——这不是压缩本身，而是让随后的压缩无损。到 start 线就把它写好（任务进行中则先完成/打点），写完告诉用户「交接已就绪，可随时压缩」。
-- **真实的上下文压缩由 harness 执行**：自动 compact、用户的 /compact、或结束会话开新窗口。到 hard 线：立即写完文档（在途任务精确打点：已完成什么、做到哪一半、确切下一步、未提交变更），然后明确提示用户「现在就压缩或开新会话」。agent 无权也无力删掉自己的上下文，不要假装压缩发生过。
+1. **用户明确要求**：「交接」「压缩会话」「开新会话」「会话太长了」。
+2. **harness 压缩通知**：上下文中出现压缩 / 汇总的系统消息（自动 compact，或用户 /summarize、/compact、/compress 之后）——立即补写交接文档。
+3. **新会话接续**：新会话发现 `docs/交接/` 下已有交接文档，先读它再动手。
 
-百分比按窗口大小估算，永远不是精测——拿不准就早写。start 线的意义是让压缩随时无损；hard 线是给估算误差和突发长输入留的最后余量。当前窗口的档位读不到时，按最大的窗口（1M / 40-60）保守执行，或直接问用户。
+因此交接文档**不是等触发才写**，而是随进度持续维护：长会话中每完成一个可交付单元（commit、测试通过、功能点、一次验证），就更新「今日交付 / 剩余任务」。压缩时机不可预测，文档保持常新，才能保证任何时刻压缩都无损——这是 agent 能做的全部准备，压缩本身仍由 harness 执行（自动 compact、用户的 /summarize、/compact、/compress，或结束会话开新窗口）。agent 无权也无力删掉自己的上下文，不要假装压缩发生过。
 
 Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save it to `docs/交接/YYYY-MM-DD-交接与剩余任务.md` **in the workspace** (not a temp dir) — handoffs must be greppable and survive across sessions. If `docs/文档导航.md` is missing, create it via the doc-index skill first; register the handoff row in the 交接 table.
 

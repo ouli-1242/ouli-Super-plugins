@@ -32,9 +32,9 @@ The Skill tool takes one skill per call. A stage needing two skills is two calls
 | — Create/edit a skill | "加个 skill", "改一下这个 skill 的触发", "new skill" | `writing-skills` |
 | — Retrospective on a session | "复盘", "retro", "这次会话哪里可改进"（user asks — e.g. after an incident or a merge） | `writing-skills` (Retro Mode) |
 | — Set up / maintain doc index | "建个文档导航", "整理一下文档", first artifact needs a home | `doc-index` |
-| — Session handoff | "交接", "handoff", "压缩会话", "会话太长了", or context crossing its tier's compression line (tiers in handoff) | `handoff` |
+| — Session handoff | "交接", "handoff", "压缩会话", "会话太长了", or a harness compaction notice; the agent can't see its own context %, so no percentage trigger | `handoff` |
 
-`handoff` may self-invoke when the context is nearly exhausted with unfinished work; otherwise it waits for the ask. Firing only on explicit user request: `grilling`'s With-Docs Mode (grill + domain-modeling together) and `writing-skills`' Retro Mode (session retrospective).
+`handoff` fires on the ask or when a harness compaction notice appears; it cannot see its own context usage, so there is no percentage-based self-trigger. Firing only on explicit user request: `grilling`'s With-Docs Mode (grill + domain-modeling together) and `writing-skills`' Retro Mode (session retrospective).
 
 **Stage overlap resolution:** a bug report that is really a feature request in disguise routes to `brainstorming`; a "review my approach" question before any code exists routes to `grilling`; stages 3 and 4 split on whether a plan document exists — a written plan routes to `executing-plans` (which calls `tdd` inside each task), a direct instruction with no plan routes to `tdd` directly; stage 4 never skips because the task "seems simple" — simplicity scales the ceremony inside the skill, not the routing decision.
 
