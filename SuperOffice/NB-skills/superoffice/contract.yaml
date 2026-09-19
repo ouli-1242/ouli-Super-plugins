@@ -1,0 +1,65 @@
+id: "NB-skills/superoffice"
+name: "superoffice"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Route office tasks to verb skills and bind the four office disciplines; the verb layer is finite, specialization lives in assets."
+when_to_use:
+  - "At the start of any office-document task (Word/Excel/PPT/PDF, drafting, review, forms, data)"
+when_not_to_use:
+  - "Retrieving external information (research, not an office verb)"
+  - "Trivial one-line edits (may skip routing)"
+required_capabilities:
+  - "Harness-injected skill discovery; document-skills plugin as primary engine"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/superoffice (verb route table walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/办公资产/索引.md (when present)"
+  skills: [doc-intake, doc-draft, doc-revise, doc-review, data-report, file-ops, form-fill, verify-output, doc-asset, office-mcp-setup, wps-cli]
+permissions:
+  - "Read-only over session context; this skill performs no writes"
+data_scope: "current session and workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the office task as stated"
+  optional: "existing artifacts, templates, asset index"
+  missing_behavior: "resolve by workflow position (input < draft < revise < review); still unclear, ask one question"
+output_contract:
+  format: "routing statement (verb + skill + reason); multi-verb chains declared explicitly"
+  quality: "one verb at a time; chains stated up front"
+constraints:
+  - "Four disciplines are unconditional (number/citation truth, template-first, evidence delivery, credential safety)"
+  - "Stage overlap resolved by workflow position"
+forbidden:
+  - "Doing the verb's job inside the router"
+  - "Waiving any discipline (none have exemptions)"
+acceptance_criteria:
+  - "Chosen verb matches workflow position; disciplines in effect"
+self_check:
+  - "Did I pick a verb or start doing its job?"
+  - "Is any discipline being waived?"
+failure_and_escalation:
+  missing_skill: "say so, handle inline under the disciplines; never pretend a skill ran"
+  non_office_task: "say so and route out"
+  ambiguous_verb: "workflow position decides; else one question"
+stop_conditions:
+  - "Task is not an office task and no route applies"
+cost_latency_budget:
+  max_tokens: "2000"
+  max_tool_calls: "1"
+  over_budget_action: "route immediately"
+examples:
+  positive: "整理并写份纪要 -> declared chain doc-intake -> doc-draft"
+  negative: "doc-review routed for a report that has not been drafted"
+  edge: "revise wording on a WPS-open document -> doc-revise (routes to wps-cli internally)"
+evaluation:
+  metrics: [verb hit rate, discipline violations (target 0), chains declared before work]
+observability:
+  log: "routing in chat; violations to docs/日志/ when a spine exists"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/superoffice; verb table kept as L0 index; four disciplines kept verbatim."

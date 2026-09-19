@@ -2,6 +2,14 @@
 
 个人轻量 skill 组合包：面向**日常非代码工作 + 简单项目**。10 个 skill = 9 个领域 skill + 1 个 mini 路由元 skill。
 
+## ★ NB-skills（前沿模型合同版）
+
+`NB-skills/` 是本包的**前沿模型专用变体**：同名单独成套（`superlite` 路由 + 9 个域 skill），按「能力合同」规范改写——**正文为英文**，过程菜谱替换为结果约束 / 边界约束 / 安全约束 / 验收约束（目标 + 能力边界 + 输入输出契约 + 失败升级 + 成本预算 + 停止条件），每个 skill 附 `contract.yaml`（risk_level、permissions、acceptance_criteria、fallback_variant、review_cycle 等完整元数据；references 为 L2 按需加载）。
+
+- skill 名与触发 description 与 `agents-skills/` 相同（保留中文触发锚点），**同一 harness 二选一安装**，勿与父包同装。
+- 结构：`NB-skills/<skill>/SKILL.md + contract.yaml`，无构建脚本、无派生目录——本目录即唯一源。
+- 安装：把 `NB-skills/<skill>` junction/复制进目标 harness 的 skills 目录（如 `~/.claude/skills/`）。
+
 ## 特性
 
 - **轻量**：10 个 skill、mini 路由器（~3KB），固定上下文成本 ~1000 tokens、典型会话 ~1800 tokens。
@@ -55,13 +63,13 @@ pwsh -File scripts\install-skills.ps1 -Agent codex -Copy          # 独立副本
 
 把 `agents-skills/` 内容直接复制进各 agent 的 skills 文件夹（会产生分叉副本，建议用安装器）：
 
-| 工具 | skills 目录 |
-| --- | --- |
-| DSH | `~/.dsh/skills/` |
-| Claude Code | `~/.claude/skills/` |
-| Codex CLI | `~/.codex/skills/` |
-| Cursor | `~/.cursor/skills/` |
-| opencode | `~/.config/opencode/skills/` |
+| 工具        | skills 目录                  |
+| ----------- | ---------------------------- |
+| DSH         | `~/.dsh/skills/`             |
+| Claude Code | `~/.claude/skills/`          |
+| Codex CLI   | `~/.codex/skills/`           |
+| Cursor      | `~/.cursor/skills/`          |
+| opencode    | `~/.config/opencode/skills/` |
 
 ## 多端兼容硬规则
 

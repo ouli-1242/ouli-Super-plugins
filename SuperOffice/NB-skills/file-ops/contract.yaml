@@ -1,0 +1,67 @@
+id: "NB-skills/file-ops"
+name: "file-ops"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Convert/merge/split/extract/recover office files with the discipline in fidelity checking, not mere existence."
+when_to_use:
+  - "Format conversion, PDF merge/split, OCR of scanned tables, batch renaming, text/table extraction"
+when_not_to_use:
+  - "Computing/aggregating extracted data (data-report)"
+  - "Reading one small file into context; editing an open WPS document (wps-cli)"
+required_capabilities:
+  - "markitdown-mcp / GLM-OCR glmocr-table / document-skills routes / wps-cli, per catalog"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/file-ops (four-step process + route table, for mid/weak models)"
+dependencies:
+  tools: [markitdown-mcp, glmocr-table, document-skills pdf/python routes, wps-cli]
+  apis: []
+  data:
+    - "office-mcp-setup references/mcp-catalog.md (engine catalog)"
+  skills: [data-report, office-mcp-setup, verify-output, doc-draft]
+permissions:
+  - "Read/convert files; write outputs and working copies"
+data_scope: "provided files and workspace"
+risk_level: "L1"
+confirmation_required:
+  - "Batch rename execution (after dry-run listing shown)"
+input_contract:
+  required: "the file(s) and the operation"
+  optional: "the fidelity contract (what must survive exactly)"
+  missing_behavior: "ask or state the fidelity contract first - archiving PDF and emailing PDF are different contracts"
+output_contract:
+  format: "operated file(s) + fidelity statement (verified checks with numbers both sides, manual-confirmation list, losses/approximations); batch ships per-file success+failure lists"
+  quality: "single-file proof before any batch; OCR confidence treated as a hint"
+constraints:
+  - "Route by operation (markitdown/OCR/PDF tooling/wps-cli export per the table)"
+  - "Trial single, verify fully, then batch with per-file checks"
+  - "Batch rename requires a dry-run listing shown to the user first"
+forbidden:
+  - "Silent fallback to a lower-fidelity route when the right engine is missing"
+  - "Trusting \"the conversion succeeded, content is unchanged\""
+acceptance_criteria:
+  - "Fidelity contract stated; single-file proof; fidelity statement delivered"
+self_check:
+  - "Does every claimed attribute trace to a check I ran?"
+  - "Is the manual-confirmation list present where OCR was involved?"
+failure_and_escalation:
+  engine_missing: "say so and offer office-mcp-setup; never degrade silently"
+  low_ocr_confidence: "deliver flagged for manual confirmation"
+  batch_failures: "stop the batch, report the failure list, fix the cause"
+stop_conditions:
+  - "Fidelity contract cannot be met with available engines and user unavailable"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "single-file run + verification, then batch loop"
+  over_budget_action: "deliver the single-file proof and the batch plan"
+examples:
+  positive: "12 scanned invoices OCR'd, spot-checked, amounts/dates/IDs on the confirmation list"
+  negative: "60-file rename executed directly from \"a clear pattern\""
+  edge: "emailing PDF -> searchable text; archiving PDF -> layout fidelity; the contract decides"
+evaluation:
+  metrics: [post-delivery fidelity failures (target 0), OCR fields needing correction, batches without single-file proof (target 0)]
+observability:
+  log: "fidelity statement per job; recurring needs -> office-mcp-setup/doc-asset"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/file-ops; fidelity contract and single-file proof kept as hard constraints."

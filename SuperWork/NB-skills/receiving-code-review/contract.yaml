@@ -1,0 +1,66 @@
+id: "NB-skills/receiving-code-review"
+name: "receiving-code-review"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Process review findings with technical rigor - verify before implementing, clarify before acting, push back with reasoning when wrong."
+when_to_use:
+  - "Receiving findings from user, external reviewer, or the code-review report, before implementing any of them"
+when_not_to_use:
+  - "Producing the review itself (code-review)"
+  - "Postmorteming bugs (diagnosing-bugs)"
+required_capabilities:
+  - "Codebase inspection; gh CLI (for GitHub thread replies)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/receiving-code-review (response-pattern walkthrough, for mid/weak models)"
+dependencies:
+  tools: [gh (optional)]
+  apis: []
+  data: []
+  skills: [code-review, tdd]
+permissions:
+  - "Implement verified fixes; write source and tests; local commits"
+data_scope: "current repository"
+risk_level: "L1"
+confirmation_required:
+  - "Feedback conflicting with the user's prior decisions"
+input_contract:
+  required: "the review feedback (findings list)"
+  optional: "reviewer source, related prior decisions"
+  missing_behavior: "any item unclear -> stop everything, clarify first (items may be related)"
+output_contract:
+  format: "implemented fixes (tested individually, no regressions) and/or technically reasoned pushbacks; thread replies stay in-thread"
+  quality: "nothing implemented while any item is unclear"
+constraints:
+  - "Verify each finding against codebase reality before touching code"
+  - "External findings get five checks (correct here / breaks things / reason for current impl / platforms / reviewer context)"
+  - "Order: clarify -> blocking -> simple -> complex; test each individually"
+forbidden:
+  - "Performative agreement or any gratitude (\"You're absolutely right!\", \"Thanks for catching that!\")"
+  - "Implementing before verification; proceeding on an unverifiable finding"
+acceptance_criteria:
+  - "Every finding implemented-and-tested or answered with technical reasoning"
+self_check:
+  - "Was each item verified against the codebase before implementation?"
+  - "Did any gratitude or performative agreement slip into a reply?"
+failure_and_escalation:
+  cannot_verify: "state the limitation and ask for direction"
+  conflicts_with_prior_decisions: "stop and surface to the user"
+  wrong_pushback: "correct factually, then implement"
+stop_conditions:
+  - "Unresolvable conflict between findings and the user's architectural decisions"
+cost_latency_budget:
+  max_tokens: "8000"
+  max_tool_calls: "one verification pass per finding; batch clarifications into one round"
+  over_budget_action: "deliver the sorted plan (verified/rejected/unclear) before implementing"
+examples:
+  positive: "Checking... build target is 10.15+, this API needs 13+. Fix the bundle ID or drop pre-13 support?"
+  negative: "You're absolutely right! Let me remove that legacy code..."
+  edge: "\"Fix 1-6\" with 4 and 5 unclear -> ask before implementing anything"
+evaluation:
+  metrics: [performative-agreement occurrences (target 0), findings implemented without verification (target 0), pushbacks later confirmed correct]
+observability:
+  log: "rejected findings + reasoning into PR thread / docs/日志/"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/receiving-code-review; response scripts collapsed into constraints; no-gratitude rule kept verbatim."

@@ -1,0 +1,72 @@
+id: "NB-skills/tdd"
+name: "tdd"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Drive all production code through the red-green loop with tests worth keeping, written first at pre-agreed seams."
+when_to_use:
+  - "Writing or about to write production code for an approved task"
+when_not_to_use:
+  - "Requirements unclear (brainstorming)"
+  - "A written plan is being executed (executing-plans calls this per task)"
+  - "Work that needs a plan first (writing-plans)"
+required_capabilities:
+  - "Test runner operation; git branching"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/tdd (loop rules walkthrough, for mid/weak models)"
+dependencies:
+  tools: [project test runner, git]
+  apis: []
+  data:
+    - "docs/测试.md (when present)"
+    - "docs/技术依据.md glossary, docs/决策记录.md"
+  skills: [brainstorming, code-review, diagnosing-bugs]
+permissions:
+  - "Write source and tests; local git commits; no push from this skill"
+data_scope: "current workspace repository"
+risk_level: "L1"
+confirmation_required:
+  - "Implementing on main/master"
+  - "Skipping the Iron Law for an exception case"
+input_contract:
+  required: "an approved task (feature description or bug with clear fix path)"
+  optional: "project seam declarations (docs/测试.md)"
+  missing_behavior: "requirements unclear -> stop, route to brainstorming"
+output_contract:
+  format: "vertical slices, each preceded by a failing test at a confirmed seam; regression test per fix"
+  quality: "tests specify public behavior and survive refactors; expected values from independent sources of truth"
+constraints:
+  - "Iron Law: no production code without a failing test first; violations are deleted, not adapted"
+  - "Watch it fail before every green; suite stays green after"
+  - "One slice per cycle; refactoring belongs to code-review, not the loop"
+forbidden:
+  - "Testing at unconfirmed seams; testing interfaces still being reshaped"
+  - "Implementation-coupled, tautological, or horizontal-sliced tests"
+  - "Starting on main/master without explicit consent"
+acceptance_criteria:
+  - "Every production change preceded in history by a failing test for the right reason"
+  - "Seams named and user-agreed"
+self_check:
+  - "Can I name the seam each test lives at and who agreed to it?"
+  - "Did I watch every test fail before making it pass?"
+failure_and_escalation:
+  no_test_runner: "stop and ask before writing code"
+  bug_surfaces_mid_loop: "switch to diagnosing-bugs"
+  test_cannot_be_deterministic: "stop and raise; never ship a flaky guard"
+stop_conditions:
+  - "User declines the TDD requirement for the task (record the deviation)"
+cost_latency_budget:
+  max_tokens: "16000"
+  max_tool_calls: "~10 red-green cycles before reporting progress and re-scoping"
+  over_budget_action: "report progress, re-scope with the user"
+examples:
+  positive: "write failing test -> watch it fail with the right message -> minimal guard -> green -> commit"
+  negative: "expect(add(a,b)).toBe(a+b) - a tautology that proves nothing"
+  edge: "exploration spike is legitimate; throw it away and start the real change with TDD"
+evaluation:
+  metrics: [production commits without preceding failing test (target 0), tests invalidated by refactors, tautological tests caught in review]
+observability:
+  log: "seam agreements in task/commit; violations to docs/日志/"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/tdd; loop mechanics kept as constraints; walkthrough prose dropped."

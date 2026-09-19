@@ -1,0 +1,67 @@
+id: "NB-skills/superlite"
+name: "superlite"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Route daily/simple-project tasks to the right domain skill, keep one-offs ceremony-free, and bind five unconditional disciplines."
+when_to_use:
+  - "At the start of any conversation or task (daily use and simple projects)"
+  - "When several skills seem to apply"
+when_not_to_use:
+  - "The task clearly matches one domain skill"
+  - "Pure Q&A, trivial edits, user opted out"
+required_capabilities:
+  - "Harness-injected skill discovery (name + description)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/superlite (compact route table + exemptions walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/文档导航.md (when a project exists)"
+  skills: [writing, research, grilling, tdd, diagnosing-bugs, code-review, verification-before-completion, doc-index, handoff]
+permissions:
+  - "Read-only over session context; this skill performs no writes"
+data_scope: "current session and workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "current task description"
+  optional: "whether a project (docs/ spine) exists"
+  missing_behavior: "ask one clarifying question, then route"
+output_contract:
+  format: "routing statement + invoke, OR direct answer via the declared daily lane"
+  quality: "one task one skill; one-offs ceremony-free"
+constraints:
+  - "Persist durable work only when there is a project; daily one-offs stay in chat unless asked to save"
+  - "Disciplines are session-bound and survive exemptions"
+forbidden:
+  - "Routing from memory"
+  - "Docs-spine ceremony for ephemeral output"
+acceptance_criteria:
+  - "Chosen skill matches the task, or daily lane declared and used"
+  - "Five disciplines in effect"
+self_check:
+  - "Did I create ceremony for a one-off?"
+  - "Did I skip a discipline for a real project task?"
+failure_and_escalation:
+  ambiguous_route: "one clarifying question; then user picks"
+  missing_skill: "say so and handle inline under the disciplines"
+  conflicts_with_user_instruction: "user wins; record deviation"
+stop_conditions:
+  - "User explicitly opts out (warn once when a discipline is skipped)"
+cost_latency_budget:
+  max_tokens: "2000"
+  max_tool_calls: "1"
+  over_budget_action: "route or answer immediately"
+examples:
+  positive: "\"总结一下这个聊天记录\" -> writing messy-material mode, chat delivery"
+  negative: "full outline ceremony for a one-paragraph translation"
+  edge: "casual decision ask -> grilling daily lane (recommendation first)"
+evaluation:
+  metrics: [routing hit rate, ceremony-per-one-off (target 0), unevidenced claims (target 0)]
+observability:
+  log: "routing in chat; discipline deviations to docs/日志/ when a project exists"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/superlite; route table reduced to L0 index; daily one-off lane and project-conditioned persistence kept."

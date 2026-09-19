@@ -1,0 +1,67 @@
+id: "NB-skills/code-review"
+name: "code-review"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Produce a two-axis diff review (Standards + Spec) whose reports stay separate so neither axis masks the other."
+when_to_use:
+  - "Reviewing a branch/PR/work-in-progress diff on request"
+  - "Mandatory thresholds: core module touched / diff >= 15 files / new engine, API, or data-model contracts"
+when_not_to_use:
+  - "Deciding how to integrate finished work (finishing-a-development-branch)"
+required_capabilities:
+  - "git; sub-agent tool (optional; sequential fallback allowed)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/code-review (six-step process, for mid/weak models)"
+dependencies:
+  tools: [git]
+  apis: []
+  data:
+    - "docs/规范.md / CODING_STANDARDS.md / CONTRIBUTING.md (when present)"
+    - "docs/agents/issue-tracker.md (optional)"
+  skills: [receiving-code-review, doc-index]
+permissions:
+  - "Read repo + git; write the report to docs/审查/"
+data_scope: "current repository"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the diff's fixed point (SHA/branch/tag)"
+  optional: "spec path; issue-tracker workflow"
+  missing_behavior: "no fixed point -> ask before anything; spec unfindable -> Spec axis reports \"no spec available\""
+output_contract:
+  format: "report with ## Standards and ## Spec sections (verbatim per axis) + one-line summary per axis; persisted to docs/审查/YYYY-MM-DD-<主题>.md and registered"
+  quality: "severities (Critical/Important/Minor) within each axis only; axes never merged or cross-ranked"
+constraints:
+  - "Confirm ref resolves and diff non-empty BEFORE spawning sub-agents"
+  - "Spec source order: commit issue refs -> user path -> docs/设计|docs|specs|.scratch -> ask user"
+  - "Smell baseline pasted in full into the Standards sub-agent regardless of repo docs"
+forbidden:
+  - "Merging or re-ranking findings across axes"
+  - "Implementing findings without receiving-code-review"
+acceptance_criteria:
+  - "Both axes produced (or stated absence); report on disk and registered"
+self_check:
+  - "Was the diff pinned and proven non-empty first?"
+  - "Are the two reports unmerged?"
+failure_and_escalation:
+  bad_ref_or_empty_diff: "report and stop; ask for the correct fixed point"
+  no_subagent_tool: "run both axes sequentially, reports strictly separate"
+  disputed_findings: "receiving-code-review owns verification and pushback"
+stop_conditions:
+  - "User unavailable to supply fixed point or spec location"
+cost_latency_budget:
+  max_tokens: "12000"
+  max_tool_calls: "2 sub-agent dispatches + 1 persistence write"
+  over_budget_action: "deliver the two raw reports without extra polishing"
+examples:
+  positive: "Standards flags no-tests-on-new-module (Important); Spec flags missing requirement 3 (Critical); both reported separately"
+  negative: "merging both axes into one cross-ranked list"
+  edge: "user says there is no spec -> Spec axis states absence; Standards still runs"
+evaluation:
+  metrics: [false-positive rate per axis, Critical findings fixed before merge, report persistence rate (target 100%)]
+observability:
+  log: "the persisted report is the record; disputes trail through receiving-code-review"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/code-review; step narrative collapsed into contracts; two-axis separation kept as the core result constraint."

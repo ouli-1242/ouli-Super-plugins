@@ -1,0 +1,71 @@
+id: "NB-skills/diagnosing-bugs"
+name: "diagnosing-bugs"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Locate hard-bug causes via a tight red-capable feedback loop built before any hypothesis; eliminate speculative fixes."
+when_to_use:
+  - "A bug resists the first fix; anything broken/throwing/failing/slow; performance regressions"
+when_not_to_use:
+  - "Trivial one-line errors with an obvious cause (fix directly)"
+  - "New feature work (not a bug); explaining an error when no fix is asked"
+required_capabilities:
+  - "Shell, debugger/REPL, optional profiler/headless browser"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/diagnosing-bugs (six-phase walkthrough with checkboxes, for mid/weak models)"
+dependencies:
+  tools: [shell, git, debugger/profiler as available]
+  apis: []
+  data:
+    - "docs/技术依据.md glossary, docs/决策记录.md (context, when present)"
+  skills: [verification-before-completion]
+permissions:
+  - "Run debug commands and temporary instrumentation in the workspace; no push"
+data_scope: "current workspace; captured output must be redacted"
+risk_level: "L1"
+confirmation_required:
+  - "Attempting fix #4 (architectural escalation mandatory at 3 failed fixes)"
+input_contract:
+  required: "the symptom as the user described it (exact error/output/timing) and location"
+  optional: "suspected area, recent changes, environment details"
+  missing_behavior: "ask for concrete failure evidence first; never start from a guess"
+output_contract:
+  format: "one named red-capable loop command (already run red once); minimized repro; 3-5 ranked falsifiable hypotheses; fix + regression test; post-mortem with confirmed cause"
+  quality: "loop red-capable/deterministic/fast/agent-runnable; all captured output redacted"
+constraints:
+  - "No red-capable command, no hypothesis - reading code for theory first is the target failure"
+  - "Minimize one element at a time until every element is load-bearing"
+  - "Regression test only at a correct seam; no correct seam is itself a finding"
+  - "One variable per probe; debug logs carry a unique [DEBUG-xxxx] prefix"
+forbidden:
+  - "Fixing without a loop; testing unranked hunches"
+  - "Logging secrets; \"log everything and grep\""
+  - "Fix attempt #4 without an architectural discussion"
+acceptance_criteria:
+  - "Original repro green on loop re-run; regression test passes or seam absence documented"
+  - "All instrumentation removed; confirmed hypothesis in commit message"
+self_check:
+  - "Did the loop assert the user's exact symptom?"
+  - "Would the regression test catch this bug if the fix were reverted?"
+failure_and_escalation:
+  no_loop_possible: "stop and ask; never hypothesize without a loop"
+  fix_failed_lt3: "return to loop analysis with new information"
+  fix_failed_3plus: "stop; question the architecture with the user"
+  really_a_feature_request: "say so and stop"
+stop_conditions:
+  - "User unavailable and a decision is needed (seam choice, architectural call)"
+cost_latency_budget:
+  max_tokens: "20000"
+  max_tool_calls: "~6 instrumentation probes; exhausted hypotheses -> back to the loop"
+  over_budget_action: "report loop state and current ranking, ask for direction"
+examples:
+  positive: "pinned curl reproduces the 500 in 2s -> minimized -> ranked hypotheses -> breakpoint confirms #2 -> regression test -> fix -> loop green"
+  negative: "20 minutes of code reading followed by \"fixing\" the most suspicious line"
+  edge: "only available seam cannot replicate the multi-caller chain -> document as finding, raise follow-up after the fix"
+evaluation:
+  metrics: [fixes reaching attempt 3+ (escalation rate), secret leaks in captured output (target 0), regression tests written before fixes]
+observability:
+  log: "post-mortem into commit/PR and docs/日志/ when a project exists"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/diagnosing-bugs; phase checkboxes collapsed into gates; redaction and 3-strike stop kept."

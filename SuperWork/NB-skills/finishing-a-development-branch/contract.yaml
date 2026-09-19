@@ -1,0 +1,67 @@
+id: "NB-skills/finishing-a-development-branch"
+name: "finishing-a-development-branch"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Convert a finished, verified branch into a user-owned integration decision (merge / PR / keep) without ever losing work."
+when_to_use:
+  - "Implementation complete and the full suite passes; user asks to wrap up the branch"
+when_not_to_use:
+  - "Before tests pass (verification-before-completion)"
+  - "Reviewing the code (code-review); conflicts unresolved (resolving-merge-conflicts)"
+required_capabilities:
+  - "git; forge PR tooling (CLI or push-printed URL)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/finishing-a-development-branch (four-step walkthrough + quick table, for mid/weak models)"
+dependencies:
+  tools: [git, project test runner, forge CLI (optional)]
+  apis: []
+  data: []
+  skills: [verification-before-completion, resolving-merge-conflicts]
+permissions:
+  - "git branch/merge/push operations; PR creation (external side effect)"
+data_scope: "current repository and its remote"
+risk_level: "L2"
+confirmation_required:
+  - "Discarding work (typed word \"discard\" after showing what is deleted)"
+  - "Force-push (explicit user request only)"
+input_contract:
+  required: "the feature branch to integrate"
+  optional: "intended base branch (plan/conversation/upstream)"
+  missing_behavior: "base unknown -> state best guess and ask BEFORE merging"
+output_contract:
+  format: "chosen option executed (merge+resuite+branch -d / push+PR+URL / keep) and reported"
+  quality: "menu presented exactly as written with all options"
+constraints:
+  - "Menu only after a green full-suite run on the tree being integrated"
+  - "Merged result re-runs the full suite; failure stops everything with the branch kept (local, recoverable)"
+forbidden:
+  - "Choosing the integration option for the user"
+  - "Treating \"yeah, get rid of it\" as discard confirmation (requires typed \"discard\")"
+  - "Force-push without explicit request; worktree cleanup beyond the branch"
+acceptance_criteria:
+  - "User's explicit choice executed; merged result green (option 1); branch state per the option table"
+self_check:
+  - "Did the menu come after a fresh green run on THIS tree?"
+  - "Was the base branch confirmed?"
+failure_and_escalation:
+  tests_fail: "show failures and stop; menu waits for green"
+  merged_result_fails: "stop, branch stays, investigate, report"
+  rejected_push: "investigate remote; force-push only on explicit request"
+stop_conditions:
+  - "User unavailable to pick an option"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "one suite run before menu + one after merge (option 1)"
+  over_budget_action: "deliver state and the open menu"
+examples:
+  positive: "green suite -> base confirmed -> user picks 2 -> PR URL reported"
+  negative: "inferring \"they obviously want it merged\""
+  edge: "discard request -> show commit list -> wait for typed \"discard\" -> git branch -D"
+evaluation:
+  metrics: [integrations without fresh green suite (target 0), unintended discards (target 0), wrong-base merges (target 0)]
+observability:
+  log: "integration choice + resulting SHAs/URL into docs/日志/"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/finishing-a-development-branch; menu/discard mechanics kept as confirmation constraints."

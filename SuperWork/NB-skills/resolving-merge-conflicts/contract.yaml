@@ -1,0 +1,66 @@
+id: "NB-skills/resolving-merge-conflicts"
+name: "resolving-merge-conflicts"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Resolve conflict hunks from both sides' original intent, preserving both where possible, inventing nothing, never aborting."
+when_to_use:
+  - "A git merge or rebase is in progress with conflicts"
+when_not_to_use:
+  - "Deciding whether to merge (finishing-a-development-branch)"
+  - "Reviewing code (code-review)"
+required_capabilities:
+  - "git; access to history (commits/PRs/issues)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/resolving-merge-conflicts (five-step discipline, for mid/weak models)"
+dependencies:
+  tools: [git]
+  apis: []
+  data: []
+  skills: [finishing-a-development-branch]
+permissions:
+  - "git index/commit operations for the in-progress merge or rebase"
+data_scope: "current repository"
+risk_level: "L1"
+confirmation_required:
+  - "Architectural incompatibility between the two sides"
+input_contract:
+  required: "the in-progress merge/rebase state (git status + conflicted files)"
+  optional: "merge goal; related commits/PRs/issues"
+  missing_behavior: "unrecoverable intent -> ask the user; never guess"
+output_contract:
+  format: "completed merge/rebase; every hunk traceable to original intent or a documented goal-justified trade-off; automated checks green"
+  quality: "no invented behavior; intent notes in the merge commit message"
+constraints:
+  - "Find both sides' original intent (commits/PRs/issues) before editing a hunk"
+  - "Preserve both intents; on incompatibility pick the goal-matching side and note the trade-off"
+  - "Run typecheck -> tests -> format after resolution; fix what the merge broke"
+forbidden:
+  - "--abort under any circumstance"
+  - "Inventing compromise behavior present in neither history"
+  - "Silently picking a winner on architectural conflicts"
+acceptance_criteria:
+  - "Merge/rebase completed; checks green; resolutions traceable"
+self_check:
+  - "For each hunk, can I name the intent (or trade-off) it preserves?"
+  - "Did I invent any behavior?"
+failure_and_escalation:
+  intent_unrecoverable: "ask the user"
+  architectural_incompatibility: "stop and surface; design conversation, not hunk resolution"
+stop_conditions:
+  - "User unavailable to decide an architectural conflict"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "history reads per conflict + one check suite"
+  over_budget_action: "resolve clear hunks; list ambiguous ones for the user"
+examples:
+  positive: "both sides renamed one function differently -> keep one name, mechanical rename commit, decision noted"
+  negative: "writing a blend of two logic branches that exists in neither history"
+  edge: "incompatible module restructures -> stop, present both architectures, user decides"
+evaluation:
+  metrics: [reworked resolutions, invented behavior (target 0), aborts (target 0)]
+observability:
+  log: "per-conflict intent notes in the merge commit message"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/resolving-merge-conflicts; five steps collapsed into constraints; never-abort kept verbatim."

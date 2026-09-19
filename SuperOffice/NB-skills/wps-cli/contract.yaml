@@ -1,0 +1,67 @@
+id: "NB-skills/wps-cli"
+name: "wps-cli"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Operate documents through the real WPS engine for what Python libraries cannot do - live recalculation, field/TOC refresh, format-faithful export, open-document control."
+when_to_use:
+  - "Formula recalculation (showing 0 / stale), TOC/field refresh, WPS-faithful PDF export, operating a user-open document"
+when_not_to_use:
+  - "Plain closed-file conversion (file-ops is the default converter)"
+  - "Installing/configuring wps-cli or its MCP (office-mcp-setup); machines without WPS"
+required_capabilities:
+  - "Windows COM + pywin32 + WPS Office 2019+ installed"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/wps-cli (decision tree + concepts walkthrough, for mid/weak models)"
+dependencies:
+  tools: [wps-cli CLI (help-first authority)]
+  apis: []
+  data:
+    - "references/commands.md, patterns.md, mcp.md, json-schema.md"
+  skills: [office-mcp-setup, file-ops, verify-output]
+permissions:
+  - "Drive WPS via COM on local files; no UNC/symlink paths"
+data_scope: "local files opened through WPS"
+risk_level: "L1"
+confirmation_required: []
+input_contract:
+  required: "the target file(s) and the operation"
+  optional: "data payloads, output paths"
+  missing_behavior: "help-first - run wps --help and per-command --help; trust the local CLI over the docs and report drift"
+output_contract:
+  format: "machine-readable JSON per command; read-back verification (parsed status + re-open/query key values) mandatory before any saved/recalculated/exported claim"
+  quality: "recomputed values compared against an independent expectation before shipping"
+constraints:
+  - "Six hard constraints: sync/blocking; extension whitelists; formula safety (no SHELL/DDE/HYPERLINK/WEBSERVICE); no UNC/symlinks; Windows+WPS2019+ only; --json available"
+  - "Diagnosis order: wps doctor -> doctor --fix (admin) -> doctor --report -> validate"
+  - "Batch: one-file proof on a draft copy; per-file success checks; failures collected, not aborting"
+forbidden:
+  - "Claiming saved/recalculated/exported without read-back evidence"
+  - "Mixing CLI and MCP routes within one task"
+  - "Using wps-cli for plain closed-file reads/writes a Python library handles"
+acceptance_criteria:
+  - "Effect confirmed by parsed JSON + re-opened/queried values; batch ships per-file results"
+self_check:
+  - "Did I parse the JSON status rather than assume success?"
+  - "Was the recalculated value compared to an independent expectation?"
+failure_and_escalation:
+  command_not_found_or_drift: "trust --help; report the drift to the user"
+  broken_com: "doctor --fix (admin) or escalate; no guessed flags"
+  expectation_mismatch: "re-diagnose; never ship the number"
+stop_conditions:
+  - "WPS not installed / environment unfixable"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "minimum command set; batch subcommand for multi-step"
+  over_budget_action: "report progress after the current file completes"
+examples:
+  positive: "stale formulas -> recalc -> cell-get reads back 1284.72 matching pandas -> delivered with evidence"
+  negative: "trusting export success:true without re-opening the PDF to count pages"
+  edge: "user watching an open document -> drive it live; never a diverging side copy"
+evaluation:
+  metrics: [claims without read-back evidence (target 0), recalcs without independent comparison, version-drift surprises]
+observability:
+  log: "command sequences + JSON evidence archived with the job; drift reported"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/wps-cli; six hard constraints and read-back discipline kept verbatim; command surface delegated to references."

@@ -2,6 +2,14 @@
 
 个人通用办公 skill 组合包：处理报告、表格、幻灯片、纪要、表单，一切 Word / Excel / PPT / PDF 的真实办公任务。
 
+## ★ NB-skills（前沿模型合同版）
+
+`NB-skills/` 是本包的**前沿模型专用变体**：同名单独成套（`superoffice` 路由 + 11 个动词 skill），按「能力合同」规范改写——**正文为英文**，过程菜谱替换为结果约束 / 边界约束 / 安全约束 / 验收约束（目标 + 能力边界 + 输入输出契约 + 失败升级 + 成本预算 + 停止条件），每个 skill 附 `contract.yaml`（risk_level、permissions、acceptance_criteria、fallback_variant、review_cycle 等完整元数据；references 为 L2 按需加载）。
+
+- skill 名与触发 description 与 `agents-skills/` 相同（保留中文触发锚点），**同一 harness 二选一安装**，勿与父包同装。
+- 结构：`NB-skills/<skill>/SKILL.md + contract.yaml`，无构建脚本、无派生目录——本目录即唯一源。
+- 安装：把 `NB-skills/<skill>` junction/复制进目标 harness 的 skills 目录（如 `~/.claude/skills/`）。
+
 ## 特性
 
 - **动词层设计**：只在动词层建能力（整理 / 起草 / 修改 / 审阅 / 汇总 / 转换 / 填表 / 验证），动词是有限的，覆盖 100% 的办公请求；专门化不内置，靠 `doc-asset` 从你的真实文档/模板按需积累。
@@ -74,12 +82,12 @@ pwsh -File scripts\install-skills.ps1 -Agent claude -IncludeOptional   # 含 off
 
 把 `agents-skills/` 内容直接复制进各 agent 的 skills 文件夹（会产生分叉副本，建议用安装器）：
 
-| 工具 | skills 目录 |
-| --- | --- |
-| DSH | `~/.dsh/skills/` |
+| 工具        | skills 目录         |
+| ----------- | ------------------- |
+| DSH         | `~/.dsh/skills/`    |
 | Claude Code | `~/.claude/skills/` |
-| Codex CLI | `~/.codex/skills/` |
-| Cursor | `~/.cursor/skills/` |
+| Codex CLI   | `~/.codex/skills/`  |
+| Cursor      | `~/.cursor/skills/` |
 
 ## 多端兼容硬规则
 

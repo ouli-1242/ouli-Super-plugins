@@ -1,0 +1,66 @@
+id: "NB-skills/grilling"
+name: "grilling"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Stress-test a plan/decision via frontier rounds of questioning until no assumption survives silently; no action before user confirmation."
+when_to_use:
+  - "User wants their plan/decision/idea pressure-tested (帮我挑刺 / 这个方案行不行)"
+when_not_to_use:
+  - "Gathering requirements for work whose design doesn't exist yet (brainstorming)"
+required_capabilities:
+  - "Optional sub-agent/background tool for fact-finding"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/grilling (round mechanics walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/决策记录.md, docs/技术依据.md (With-Docs Mode)"
+  skills: [brainstorming, domain-modeling]
+permissions:
+  - "Read-only over the workspace; writes only via With-Docs Mode artifacts"
+data_scope: "current session and workspace"
+risk_level: "L0"
+confirmation_required:
+  - "With-Docs Mode (explicit user request only)"
+input_contract:
+  required: "the plan/decision/idea to stress-test"
+  optional: "known constraints, prior decisions"
+  missing_behavior: "subject too formless -> say so, route to brainstorming"
+output_contract:
+  format: "numbered question rounds with recommended answers (Q / recommended-answer format); termination = empty frontier + user confirmation"
+  quality: "each round covers the whole askable frontier; facts looked up, decisions asked"
+constraints:
+  - "Frontier = decisions whose prerequisites are settled; ask it whole, then wait"
+  - "Facts are your job (sub-agent); decisions are the user's"
+  - "With-Docs Mode adds domain-modeling capture; never self-enabled"
+forbidden:
+  - "Acting on conclusions before the user confirms shared understanding"
+  - "Asking the user for look-up-able facts"
+acceptance_criteria:
+  - "Interview ends only with empty frontier AND user confirmation"
+self_check:
+  - "Is any surviving assumption unstated?"
+  - "Did a round contain a question with unsettled prerequisites?"
+failure_and_escalation:
+  user_disengages: "record the open frontier and stop; no partial-answer action"
+  facts_contradict_plan: "surface the contradiction as a frontier question"
+  decision_already_made: "stop; nothing to test"
+stop_conditions:
+  - "User ends the interview; deliver the remaining frontier"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "fact-finding dispatches run parallel to rounds"
+  over_budget_action: "deliver the remaining frontier and stop"
+examples:
+  positive: "round 1 = Q1-Q4 with recommendations; Q2's answer unblocks Q5-Q7 for round 2"
+  negative: "asking \"what database?\" while \"is this multi-tenant?\" is still open"
+  edge: "\"grill-with-docs\" -> same rounds plus glossary/ADR capture"
+evaluation:
+  metrics: [post-interview discovered assumptions (target 0), rounds to empty frontier, fact-questions wrongly asked of the user]
+observability:
+  log: "final shared understanding into the docs of the owning skills"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/grilling; round mechanics kept as output contract; With-Docs gating kept explicit."

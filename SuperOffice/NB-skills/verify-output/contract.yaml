@@ -1,0 +1,65 @@
+id: "NB-skills/verify-output"
+name: "verify-output"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Gate every office deliverable behind fresh tool-run evidence (read back, rendered, counted) before any handover claim or sending."
+when_to_use:
+  - "Before claiming any deliverable ready; before emailing/printing/submitting"
+when_not_to_use:
+  - "Reviewing someone else's material (doc-review)"
+  - "Mid-work format checks (the doing skill owns those)"
+required_capabilities:
+  - "File reopen/render tooling; wps-cli for xlsx recomputation"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/verify-output (evidence-table walkthrough, for mid/weak models)"
+dependencies:
+  tools: [wps-cli (xlsx recompute), render/preview tooling]
+  apis: []
+  data:
+    - "fidelity/mapping contracts from the producing skill"
+  skills: [doc-draft, doc-revise, data-report, form-fill, doc-asset]
+permissions:
+  - "Run verification commands; no content edits from this skill"
+data_scope: "the deliverable artifacts"
+risk_level: "L0"
+confirmation_required:
+  - "Sending / printing / submitting (user's explicit go)"
+input_contract:
+  required: "the deliverable artifact(s) and the intended handover"
+  optional: "fidelity/mapping contracts"
+  missing_behavior: "no check exists for the type -> construct one (reopen, count, spot-check) before any claim"
+output_contract:
+  format: "per-artifact evidence table (docx/xlsx/pptx/pdf/form/batch rules) + residual-gaps note ([待核实] list)"
+  quality: "checks run this turn on the final file, visible output"
+constraints:
+  - "Last-minute edits invalidate prior evidence; re-run on the final file"
+  - "Deliver step: attachments checked against verified files; sending waits for the user's go"
+forbidden:
+  - "\"Should be fine\" / \"I just generated it\" as evidence"
+  - "Hidden gaps (undeclared [待核实] markers)"
+acceptance_criteria:
+  - "Evidence table complete for the type; gaps note present; send gated"
+self_check:
+  - "Did I run every check this turn on the final file?"
+  - "Is every remaining gap declared?"
+failure_and_escalation:
+  any_check_fails: "back to the producing verb skill with the finding"
+  repeated_pain: "propose a doc-asset profile entry"
+stop_conditions:
+  - "User orders handover without verification (record the deviation)"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "one evidence pass per deliverable; batch = per-file loop"
+  over_budget_action: "verify highest-risk artifacts first; name what remains unchecked"
+examples:
+  positive: "xlsx recomputed via wps-cli, totals cross-checked, gaps note lists two pending figures"
+  negative: "final file never re-opened after the last-minute edit"
+  edge: "email handover -> attachment names checked character-for-character; send waits for the go"
+evaluation:
+  metrics: [handovers without fresh evidence (target 0), user-discovered undeclared gaps, wrong-attachment sends (target 0)]
+observability:
+  log: "evidence table + gaps note archived with the delivery"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/verify-output; evidence table kept verbatim as the acceptance contract."

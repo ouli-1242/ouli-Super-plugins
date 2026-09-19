@@ -1,0 +1,66 @@
+id: "NB-skills/grilling"
+name: "grilling"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Stress-test plans/decisions via frontier rounds until no assumption survives; recommendation-first fast lane for casual decisions."
+when_to_use:
+  - "User wants their plan/decision/idea pressure-tested (full interview)"
+  - "Casual settle-it asks get a recommendation first, interview optional"
+when_not_to_use:
+  - "Gathering requirements for work that doesn't exist yet (ask directly)"
+required_capabilities:
+  - "Optional sub-agent/background tool for fact-finding"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/grilling (round mechanics walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data: []
+  skills: []
+permissions:
+  - "Read-only over the workspace"
+data_scope: "current session and workspace"
+risk_level: "L0"
+confirmation_required:
+  - "None (full interview is itself user-initiated or user-accepted)"
+input_contract:
+  required: "the plan/decision/idea to stress-test"
+  optional: "known constraints"
+  missing_behavior: "too formless -> say so and ask directly"
+output_contract:
+  format: "casual = recommendation with reasons first; full = numbered frontier rounds (Q + recommended answer), terminating at empty frontier + user confirmation"
+  quality: "each round covers the whole askable frontier; facts looked up, decisions asked"
+constraints:
+  - "Casual ask that ends in an interrogation is a failed route"
+  - "Frontier = decisions whose prerequisites are settled; ask it whole, then wait"
+  - "Facts are your job (sub-agent); decisions are the user's"
+forbidden:
+  - "Acting on conclusions before the user confirms shared understanding"
+  - "Asking the user for look-up-able facts"
+acceptance_criteria:
+  - "Casual -> recommendation first; interview -> empty frontier AND user confirmation"
+self_check:
+  - "Is any surviving assumption unstated?"
+  - "Did a round contain a question with unsettled prerequisites?"
+failure_and_escalation:
+  user_disengages: "record the open frontier and stop"
+  facts_contradict_plan: "surface the contradiction as a frontier question"
+  decision_already_made: "stop; nothing to test"
+stop_conditions:
+  - "User ends the interview; deliver the remaining frontier"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "fact-finding dispatches run parallel to rounds"
+  over_budget_action: "deliver the remaining frontier and stop"
+examples:
+  positive: "casual ask -> recommendation + reasons in one message; interview only on request"
+  negative: "a one-line price question answered with a five-question intake form"
+  edge: "mid-interview settled constraint -> tree reshaped next round"
+evaluation:
+  metrics: [post-interview discovered assumptions (target 0), interrogations on casual asks (target 0), fact-questions asked of the user]
+observability:
+  log: "shared understanding in chat (daily) or project docs (project mode)"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/grilling; daily-decision downshift (recommend first) kept as the fast lane."

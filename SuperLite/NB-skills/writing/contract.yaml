@@ -1,0 +1,66 @@
+id: "NB-skills/writing"
+name: "writing"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Produce written deliverables matched to purpose and audience; extract structured summaries from messy material without invention."
+when_to_use:
+  - "Any written deliverable (documents/plans/reports/emails/config/READMEs)"
+  - "Turning messy material into structure (总结/纪要/整理/翻译)"
+when_not_to_use:
+  - "Code (tdd)"
+  - "Stress-testing an existing plan (grilling)"
+required_capabilities:
+  - "Long-form drafting; source reading"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/writing (four-step process + templates, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "source material; docs/文档导航.md (project mode)"
+  skills: [doc-index]
+permissions:
+  - "Write deliverables in chat or docs/ type dirs"
+data_scope: "provided material and current workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the writing task or source material"
+  optional: "audience constraints, length limits, templates"
+  missing_behavior: "purpose/audience unclear -> ask one question first"
+output_contract:
+  format: "normal = purpose-matched deliverable; messy-material = extraction with per-claim source anchors and [待确认] gaps; plan = goal->steps->order->failure modes"
+  quality: "every section serves the purpose; length as the purpose demands"
+constraints:
+  - "Outline before prose for non-trivial pieces; draft directly for small ones"
+  - "Messy mode: full read first; exact copies of names/numbers/dates; action items need an owner"
+forbidden:
+  - "Writing before the audience is known"
+  - "Inventing content the source does not contain; gold-plating"
+acceptance_criteria:
+  - "Deliverable serves its stated purpose; anchors complete in extraction mode"
+self_check:
+  - "Does every section serve the purpose?"
+  - "Are all numbers/quotes anchored? Would the reader know what to do next?"
+failure_and_escalation:
+  audience_unanswerable: "deliver with the assumption stated"
+  contradictory_source: "record both readings; never reconcile silently"
+  missing_data: "[待确认] marker, never invention"
+stop_conditions:
+  - "User unavailable and the piece cannot proceed without their answer"
+cost_latency_budget:
+  max_tokens: "8000"
+  max_tool_calls: "one full source read + one self-review pass"
+  over_budget_action: "deliver outline + open questions instead of rushed prose"
+examples:
+  positive: "minutes with timestamps, [待确认] on the inaudible figure, owner on every action item"
+  negative: "normalizing a phone number from memory when the audio was unclear"
+  edge: "friend's price comparison -> daily one-off, chat delivery, no docs spine"
+evaluation:
+  metrics: [audience-unknown deliveries (target 0), unanchored claims (target 0), reader follow-ups from structure]
+observability:
+  log: "durable deliverables registered in 文档导航; [待确认] items tracked"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/writing; messy-material hard rules kept as extraction contract."

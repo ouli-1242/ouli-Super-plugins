@@ -1,0 +1,66 @@
+id: "NB-skills/doc-draft"
+name: "doc-draft"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Draft any office document via one frame - four questions, template-derived skeleton, material-only content, gaps delivered visibly."
+when_to_use:
+  - "Creating any new office document (reports/notices/proposals/weekly reports/plans/letters/slide outlines)"
+when_not_to_use:
+  - "Turning messy input into material (doc-intake first)"
+  - "Revising existing text (doc-revise); filling fixed forms (form-fill)"
+required_capabilities:
+  - "Long-form drafting; file reading"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/doc-draft (four-step process + primitives table, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/办公资产/ profiles; user past samples; gathered material"
+  skills: [doc-asset, doc-revise, verify-output, form-fill]
+permissions:
+  - "Write the drafted document (file or chat)"
+data_scope: "provided material and current workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the drafting request"
+  optional: "template/profile, past samples, data files"
+  missing_behavior: "ask one message covering all four-question gaps; outline confirmation for long documents"
+output_contract:
+  format: "document + three-line delivery note (structure used / [待核实] items / user-confirmation needs)"
+  quality: "every number sourced or marked; skeleton from asset, sample, or confirmed primitive"
+constraints:
+  - "Four questions first: 给谁看 / 什么目的 / 什么结构 / 素材在哪"
+  - "Skeleton priority: doc-asset profile -> past sample -> structure primitive (confirmed)"
+  - "Unknown conventions -> template, else neutral form + flag"
+forbidden:
+  - "Inventing numbers, quotes, or institutional formats"
+  - "Skipping the four questions; trusting memory of a format"
+acceptance_criteria:
+  - "Four questions answered or assumed; every number sourced or marked; delivery note present"
+self_check:
+  - "Does any number lack a source?"
+  - "Is the reader's first question answered on page 1?"
+failure_and_escalation:
+  no_template_user_away: "neutral standard form, flagged"
+  material_insufficient: "[待核实] + state what is needed"
+  user_says_change: "doc-revise; check -> verify-output; keep format -> doc-asset"
+stop_conditions:
+  - "User unavailable and required structure confirmation missing for a long document"
+cost_latency_budget:
+  max_tokens: "10000"
+  max_tool_calls: "four-question round + one read-back"
+  over_budget_action: "deliver outline + open questions"
+examples:
+  positive: "weekly report on 时间线-进展 with every figure from the tracking sheet"
+  negative: "an invented revenue figure in a full-looking draft"
+  edge: "bid response with fixed 评分项 structure -> form-fill, not drafting"
+evaluation:
+  metrics: [unsourced numbers (target 0), wrong-format rewrites, gap resolution rate]
+observability:
+  log: "delivery note per draft; recurring conventions -> doc-asset proposal"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-draft; four questions and skeleton priority kept as constraints."

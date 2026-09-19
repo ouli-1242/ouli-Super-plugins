@@ -1,0 +1,64 @@
+id: "NB-skills/research"
+name: "research"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Answer research questions from primary sources with per-claim citations, delegated to a background agent."
+when_to_use:
+  - "Topics needing official docs, API facts, standards, current best practices"
+when_not_to_use:
+  - "Questions answerable from the codebase or already known"
+  - "Project-internal empirical data (docs/实验/)"
+required_capabilities:
+  - "Background/sub-agent tool (inline fallback allowed)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/research (three-job delegation note, for mid/weak models)"
+dependencies:
+  tools: [background agent tool]
+  apis: []
+  data:
+    - "docs/技术依据.md, docs/设计/, docs/文档导航.md"
+  skills: [doc-index]
+permissions:
+  - "Web access for the background agent; write to docs/ destinations"
+data_scope: "public sources + current workspace docs/"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the research question, scoped to investigate"
+  optional: "depth hints, candidate sources"
+  missing_behavior: "too broad -> narrow with the user in one exchange before dispatching"
+output_contract:
+  format: "one Markdown file, every claim cited; API facts -> docs/技术依据.md section; design-shaped -> docs/设计/YYYY-MM-DD-<主题>.md; registered"
+  quality: "primary sources only; no wholesale copying"
+constraints:
+  - "Background agent does exactly three things: investigate primary sources, write cited findings, save to destination"
+forbidden:
+  - "Presenting uncited findings"
+  - "Citing a secondary write-up as if it were the source"
+acceptance_criteria:
+  - "Findings saved, every claim cited, registered in 文档导航"
+self_check:
+  - "Does every claim trace to a primary source?"
+  - "Is the destination matched to the conclusion type?"
+failure_and_escalation:
+  no_background_tool: "investigate inline, stating the context cost"
+  contradicting_sources: "report both with citations; never silently pick"
+  answerable_from_codebase: "stop and answer directly"
+stop_conditions:
+  - "Sources inaccessible and no alternative path"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "one background dispatch per question (parallel for independent questions)"
+  over_budget_action: "return best-cited partial findings plus the open tail"
+examples:
+  positive: "TLS support question -> official docs/changelog -> cited answer appended to 技术依据.md"
+  negative: "LLM-generated summary without source links presented as the finding"
+  edge: "answer depends on our own benchmark data -> docs/实验/, not this skill"
+evaluation:
+  metrics: [uncited claims (target 0), secondary-source citations, user follow-ups caused by wrong facts]
+observability:
+  log: "citations in the findings file; registration in 文档导航"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/research; delegation jobs kept as the agent contract."

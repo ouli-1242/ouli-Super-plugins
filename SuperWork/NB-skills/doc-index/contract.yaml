@@ -1,0 +1,65 @@
+id: "NB-skills/doc-index"
+name: "doc-index"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Own the single doc index facade (docs/文档导航.md) and the save-and-register protocol every producing skill follows."
+when_to_use:
+  - "docs/文档导航.md missing and an artifact needs a home; user asks to set up/reorganize docs"
+when_not_to_use:
+  - "Writing a specific design/plan/log (producing skills own that)"
+  - "Registering one row when the index already exists (producing skill appends it)"
+required_capabilities:
+  - "Filesystem access only"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/doc-index (scaffold templates walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/文档导航.md (the facade itself)"
+  skills: []
+permissions:
+  - "Create/maintain docs/ structure and the index file"
+data_scope: "current workspace docs/"
+risk_level: "L1"
+confirmation_required: []
+input_contract:
+  required: "a trigger (missing index + artifact, or explicit reorganize request)"
+  optional: "project-specific path overrides"
+  missing_behavior: "no docs/ -> scaffold the default layout tailored to the project"
+output_contract:
+  format: "文档导航.md with layout tree, naming conventions, 活跃入口, 当前进度, root-doc table, per-type registration tables; optional AGENTS.md"
+  quality: "index matches reality; every artifact findable through it"
+constraints:
+  - "The four-step protocol: scaffold-if-missing -> read/confirm layout -> save artifact -> register one row"
+  - "Naming: YYYY-MM-DD-<主题>.md (topic mandatory); same-day same-type merges; Status line first and greppable"
+  - "Draft isolation: formal dirs hold approved only; drafts in .scratch/ or -draft suffix"
+forbidden:
+  - "Duplicate authoritative documents (duplication is a defect)"
+  - "Registering artifacts outside the declared layout"
+acceptance_criteria:
+  - "Every artifact findable via 文档导航.md; every registered path exists"
+self_check:
+  - "Does the newest artifact have a registration row?"
+  - "Is any authoritative doc duplicated elsewhere?"
+failure_and_escalation:
+  project_has_own_layout: "adopt it; the index declares the override"
+  conflicting_indexes: "merge to one; the facade is singular"
+stop_conditions:
+  - "None beyond user instruction"
+cost_latency_budget:
+  max_tokens: "3000"
+  max_tool_calls: "scaffold once; rows are one line each"
+  over_budget_action: "register path now, summary at next touch"
+examples:
+  positive: "log saved to docs/日志/2026-09-19-支付重构.md + one row appended = done"
+  negative: "a review report left only in chat (does not exist per protocol)"
+  edge: "draft spec in .scratch/ -> on approval moves to docs/设计/ and gets its row"
+evaluation:
+  metrics: [unregistered artifacts (target 0), duplicate authoritative docs (target 0), index-vs-reality staleness]
+observability:
+  log: "文档导航.md itself is the record"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/doc-index; scaffold templates kept implicit; protocol collapsed into four steps."

@@ -2,6 +2,14 @@
 
 个人编码生命周期 skill 组合包：17 个 skill 覆盖从需求到集成的完整流程，由入口路由器按生命周期阶段分发，不接管对话、按需触发。
 
+## ★ NB-skills（前沿模型合同版）
+
+`NB-skills/` 是本包的**前沿模型专用变体**：同名单独成套（`superwork` 路由 + 16 个域 skill），按「能力合同」规范改写——**正文为英文**，过程菜谱替换为结果约束 / 边界约束 / 安全约束 / 验收约束（目标 + 能力边界 + 输入输出契约 + 失败升级 + 成本预算 + 停止条件），每个 skill 附 `contract.yaml`（risk_level、permissions、acceptance_criteria、fallback_variant、review_cycle 等完整元数据；references 为 L2 按需加载）。
+
+- skill 名与触发 description 与 `agents-skills/` 相同（保留中文触发锚点），**同一 harness 二选一安装**，勿与父包同装。
+- 结构：`NB-skills/<skill>/SKILL.md + contract.yaml`，无构建脚本、无派生目录——本目录即唯一源。
+- 安装：把 `NB-skills/<skill>` junction/复制进目标 harness 的 skills 目录（如 `~/.claude/skills/`）。
+
 ## 特性
 
 - **入口路由器**：`superwork` 元 skill 在任何对话/任务开始时触发，按生命周期路由表分发到具体 skill，避免多 skill 描述的"自由竞争"导致命中错误。
@@ -81,15 +89,15 @@ node scripts\build-agent-folders.cjs --check  # 只校验是否需要重建
 
 ## 多端兼容硬规则（改任何 SKILL.md 前必读）
 
-| 规则 | 原因 |
-|---|---|
-| frontmatter 只留 `name` + `description` | Claude Code 只允许 6 个字段，多写会直接报错 |
-| description 单行 + 双引号 | 未加引号的 `: ` 被严格 YAML 判为嵌套映射，整个 skill 被静默丢弃 |
-| 长描述 ≤ 1024 字符 | 各端公布的上限 |
-| 短描述 ≤ 250 字符且中文锚点靠前 | ZCode 每轮只注入描述前 250 字符 |
-| description 必含中文触发锚点 | 你的输入以中文为主 |
-| 每文件恰好一个 H1，`name` = 目录名且 kebab-case | 部分 harness 的渲染与校验要求 |
-| UTF-8 无 BOM | PowerShell 5.1 与部分解析器对 BOM 敏感 |
+| 规则                                            | 原因                                                            |
+| ----------------------------------------------- | --------------------------------------------------------------- |
+| frontmatter 只留 `name` + `description`         | Claude Code 只允许 6 个字段，多写会直接报错                     |
+| description 单行 + 双引号                       | 未加引号的 `: ` 被严格 YAML 判为嵌套映射，整个 skill 被静默丢弃 |
+| 长描述 ≤ 1024 字符                              | 各端公布的上限                                                  |
+| 短描述 ≤ 250 字符且中文锚点靠前                 | ZCode 每轮只注入描述前 250 字符                                 |
+| description 必含中文触发锚点                    | 你的输入以中文为主                                              |
+| 每文件恰好一个 H1，`name` = 目录名且 kebab-case | 部分 harness 的渲染与校验要求                                   |
+| UTF-8 无 BOM                                    | PowerShell 5.1 与部分解析器对 BOM 敏感                          |
 
 ## 仓库结构
 

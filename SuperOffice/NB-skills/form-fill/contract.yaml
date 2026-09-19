@@ -1,0 +1,66 @@
+id: "NB-skills/form-fill"
+name: "form-fill"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Fill fixed forms by mapping material to fields traceably; the mapping table is the real deliverable."
+when_to_use:
+  - "Application/declaration forms, expense sheets, review tables, bid response tables, PDF forms, fixed-cell templates"
+when_not_to_use:
+  - "Free-form documents (doc-draft)"
+  - "Computing the numbers (data-report first); converting the form's format (file-ops)"
+required_capabilities:
+  - "Excel/PDF form editing via Python route; wps-cli for open WPS docs"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/form-fill (four-step process + mapping template, for mid/weak models)"
+dependencies:
+  tools: [document-skills Python route, wps-cli (open documents)]
+  apis: []
+  data:
+    - "source material; prior verified products (data-report/doc-intake)"
+  skills: [file-ops, data-report, verify-output, doc-asset]
+permissions:
+  - "Fill a working copy of the form; never write the user's only original"
+data_scope: "the form and provided material"
+risk_level: "L1"
+confirmation_required:
+  - "Submitting or printing the official form (via verify-output gate)"
+input_contract:
+  required: "the empty form and the source material"
+  optional: "prior verified products as value sources"
+  missing_behavior: "inventory the empty form first - fields, format requirements, and 填表说明 (which count as fields)"
+output_contract:
+  format: "filled working copy + mapping table (字段/要求/填入值/来源/状态); unsourceable values [待补]"
+  quality: "every value traceable; key fields (amounts/dates/IDs/names) double-checked"
+constraints:
+  - "Build the mapping table before filling"
+  - "Fill on a working copy; route by form type (Excel/PDF -> Python; WPS-open -> wps-cli; scanned -> OCR first)"
+  - "Verify field by field against the mapping table"
+forbidden:
+  - "Guessing unsourceable values into an official form"
+  - "Leaving required fields silently empty; ignoring the form's own format rules"
+acceptance_criteria:
+  - "Mapping table complete; every field verified; verify-output gate passed before submission"
+self_check:
+  - "Does every value trace to a source?"
+  - "Would the form survive an auditor's spot check?"
+failure_and_escalation:
+  value_has_no_source: "[待补] + ask the user"
+  form_structure_conflict: "surface to the user before filling anything else"
+stop_conditions:
+  - "Required values unavailable and the user unavailable"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "one inventory + one fill pass + one field verification"
+  over_budget_action: "fill verified fields; deliver the mapping table with [待补] rows visible"
+examples:
+  positive: "38-row mapping table, every amount traced to a ledger cell, gate passed"
+  negative: "\"编号\" guessed as project code when the form meant 批文号"
+  edge: "scanned paper form -> OCR first, per-field confidence flagged in the mapping table"
+evaluation:
+  metrics: [unsourced fills (target 0), format rejections, resubmissions from wrong values (target 0)]
+observability:
+  log: "mapping table archives with the form; recurring types -> doc-asset conventions"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/form-fill; mapping table kept as the core deliverable."
