@@ -35,23 +35,29 @@ _SYMBOL_DESC = (
 )
 
 _INSTRUCTIONS = (
-    "FastGraph: project index for locating code, the call graph, dependencies and "
-    "recent changes. Results are compact locations/symbols/relationships; source "
-    "text comes only from read_file / symbol_body.\n"
-    "Workflow:\n"
-    "- wrong folder? activate_project(root=\"/abs/path\") once, then everything points there\n"
-    "- orient yourself: project_overview()\n"
-    "- locate code: code_search(query) — names, comments and strings (CJK ok)\n"
-    "- inspect before reading: file_symbols(path) for a file, symbol_info(name) for a symbol\n"
-    "- read: symbol_body(name) (preferred) or read_file(path, start_line?, end_line?)\n"
-    "- call graph: find_callers(name, depth?) / find_callees(name, depth?); "
-    "traced chains: find_callers(depth=3)\n"
-    "- empty is not none: find_callers/find_callees may return nothing while "
-    "`unresolved_incoming`/`unresolved_outgoing` reports edges whose target is "
-    "not statically knowable -- treat that as unknown, never as unused\n"
-    "- before changing code: impact_analysis(name); imports and cycles: file_deps(path), module_cycles()\n"
-    "- after editing: changed_context()\n"
-    "All line numbers are 1-based. Keep limit small (10-20); responses are compact by design."
+    "FastGraph is the project's code index: the real call graph, project-wide "
+    "search, dependencies and change awareness. Text search cannot tell a "
+    "definition from a call site and cannot follow a method to its callers — "
+    "these tools can. Reach for them at these triggers:\n"
+    "- looking for where code lives / where a name is used -> code_search(query), "
+    "not grep\n"
+    "- about to open a file you have not seen -> file_symbols(path) first\n"
+    "- asked 'who calls X' / 'where is X used' -> find_callers(name): real call "
+    "edges. Empty list + unresolved_incoming>0 means callers exist but could not "
+    "be pinned — never conclude 'unused'\n"
+    "- about to edit a function/class -> impact_analysis(name) first\n"
+    "- about to change imports or module structure -> file_deps(path), "
+    "module_cycles()\n"
+    "- want one symbol's source -> symbol_body(name); read_file only for whole "
+    "files or non-code text\n"
+    "- finished a round of edits -> changed_context() to re-check the blast "
+    "radius; pass base=\"main\" to cover a whole branch\n"
+    "- unfamiliar repo -> project_overview() once, then navigate\n"
+    "wrong folder? activate_project(root=\"/abs/path\") once, then everything "
+    "points there; every tool also takes root=<abs path> for a one-off "
+    "cross-project query. All line numbers are 1-based. Responses are compact "
+    "by design: locations + relationships, source text only via read_file / "
+    "symbol_body."
 )
 
 
@@ -85,7 +91,7 @@ def build_server(root) -> MCPServer:
 
     @tool
     def project_overview(root: Annotated[str | None, Field(description=_ROOT_DESC)] = None) -> dict:
-        """Project map: languages, file/symbol counts, entry points, top-level layout, cross-module dependency direction, parse errors. Worth calling first in an unfamiliar repo."""
+        """Call this FIRST in an unfamiliar repo: languages, file/symbol counts, entry points, top-level layout, cross-module dependency direction, parse errors. One call replaces a dozen exploratory greps."""
         return tools.project_overview(root=root)
 
     @tool
@@ -95,7 +101,7 @@ def build_server(root) -> MCPServer:
         kind: Annotated[str | None, Field(description="Optional symbol kind filter (function/class/...); None = all kinds.")] = None,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """Find where code lives by keyword, symbol name, or natural language. First choice when the exact symbol name is unknown. `match` tells which tier hit: name | doc | content | import."""
+        """Use INSTEAD of grep/glob to locate code: matches symbol names, docstrings, comments and string content (CJK ok), and ranks real definitions above text noise. First choice when the exact symbol name is unknown; `match` tells which tier hit: name | doc | content | import."""
         return tools.code_search(query, limit=limit, kind=kind, root=root)
 
     @tool
@@ -112,7 +118,7 @@ def build_server(root) -> MCPServer:
         limit: Annotated[int, Field(description=_LIMIT_DESC)] = 200,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """Symbols in one file (kind, signature, lines) - inspect structure before reading the file. `truncated` reports whether `limit` capped the list."""
+        """Use BEFORE reading a file you have not seen: returns its symbol list (kind, signature, lines) so you can jump straight to the part you need instead of scanning the body. `truncated` reports whether `limit` capped the list."""
         return tools.file_symbols(path, limit=limit, root=root)
 
     @tool
@@ -131,7 +137,7 @@ def build_server(root) -> MCPServer:
         max_lines: Annotated[int, Field(description="Max source lines to return for the symbol.")] = 200,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """Read one symbol's source body - preferred over read_file when you know the symbol, since it returns only that symbol."""
+        """Read one symbol's source body - PREFER this over read_file when you know the symbol's name, since it returns exactly that symbol instead of a file window."""
         return tools.symbol_body(symbol, max_lines=max_lines, root=root)
 
     @tool
@@ -141,7 +147,7 @@ def build_server(root) -> MCPServer:
         depth: Annotated[int, Field(description="How many levels of callers to traverse (1 = direct callers only).")] = 1,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """Who calls this symbol. depth>=2 returns transitive callers. Each entry carries `via`: "resolved" (a stored call edge) or "text" (an unresolved edge whose text merely names the symbol -- a guess). `unresolved_incoming` counts edges that could not be resolved, so an empty caller list is NOT proof that nothing calls it. For change-impact grading use impact_analysis."""
+        """Use for 'who calls X' / 'where is X used': real call edges, not text matches — grep hits comments and unrelated names, this follows actual invocations. depth>=2 returns transitive callers. Each entry carries `via`: "resolved" (a stored call edge) or "text" (an unresolved edge whose text merely names the symbol -- a guess). `unresolved_incoming` counts edges that could not be resolved, so an empty caller list is NOT proof that nothing calls it. For change-impact grading use impact_analysis."""
         return tools.find_callers(symbol, limit=limit, depth=depth, root=root)
 
     @tool
@@ -161,7 +167,7 @@ def build_server(root) -> MCPServer:
         limit: Annotated[int, Field(description=_LIMIT_DESC)] = 40,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """Who is affected if this symbol changes: direct callers (HIGH), indirect (MEDIUM), tests listed separately. For a plain caller list use find_callers."""
+        """Run BEFORE editing a symbol to see who is affected: direct callers (HIGH), indirect (MEDIUM), tests listed separately, plus files that import its module without calling it (`import_dependents`). For a plain caller list use find_callers."""
         return tools.impact_analysis(symbol, max_depth=max_depth, limit=limit, root=root)
 
     @tool
@@ -169,7 +175,7 @@ def build_server(root) -> MCPServer:
         path: Annotated[str, Field(description="File path (absolute, or relative to the project root).")],
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """What a file imports (internal resolved, external listed separately) and which files import it. For import cycles across the project use module_cycles."""
+        """Check BEFORE changing a file's imports or its public surface: what it imports (internal resolved, external listed separately) and which files import it. For import cycles across the project use module_cycles."""
         return tools.file_deps(path, root=root)
 
     @tool
@@ -183,10 +189,11 @@ def build_server(root) -> MCPServer:
     @tool
     def changed_context(
         limit: Annotated[int, Field(description=_LIMIT_DESC)] = 50,
+        base: Annotated[str | None, Field(description="Optional git rev (branch, tag, HEAD~3): diff that ref against the working tree to cover a whole branch instead of uncommitted changes only.")] = None,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """After edits: git diff -> changed files/symbols -> affected callers."""
-        return tools.changed_context(limit=limit, root=root)
+        """Run AFTER finishing edits: git diff -> changed files/symbols -> affected callers, so you can verify the blast radius before declaring done. Pass base (e.g. "main") to see a whole branch's footprint, not just uncommitted changes."""
+        return tools.changed_context(limit=limit, base=base, root=root)
 
     # ---- UNEXPOSED: implemented and tested, but not advertised ----
     # Each of these is one call away from being re-exposed; they are held back
@@ -202,9 +209,49 @@ def build_server(root) -> MCPServer:
     #   file_metrics   -- low frequency
     #   get_status     -- project_overview reports the same index counts
 
+    # A pullable resource mirror of project_overview: clients that list
+    # resources can fetch the project map without spending a tool slot, and
+    # it refreshes through the same lazy incremental path.
+    @server.resource(
+        "fastgraph://overview",
+        name="Project Overview",
+        title="Project Overview",
+        description="Project map: languages, file/symbol counts, entry points, "
+        "top-level layout, cross-module dependency direction, parse errors.",
+        mime_type="application/json",
+    )
+    def overview_resource() -> dict:
+        return tools.project_overview()
+
+    # A user/client-invocable prompt that loads the navigation workflow into
+    # the conversation — useful with clients that do not surface server
+    # instructions to the model.
+    @server.prompt(
+        name="fastgraph-workflow",
+        title="FastGraph navigation workflow",
+        description="Loads the when-to-use-which-tool decision list for "
+        "FastGraph into the conversation.",
+    )
+    def workflow_prompt() -> str:
+        return _INSTRUCTIONS
+
+    # Kept for run_stdio's teardown: release the SQLite handles (main root and
+    # any cross-project caches) when the server stops, so a killed session does
+    # not leave -wal/-shm files behind on every project it touched.
+    server._fastgraph_tools = tools  # type: ignore[attr-defined]
+
     return server
 
 
 def run_stdio(root):
     server = build_server(root)
-    server.run()
+    try:
+        server.run()
+    finally:
+        tools = getattr(server, "_fastgraph_tools", None)
+        if tools is not None:
+            tools.close()
+            try:
+                tools.db.close()
+            except Exception:
+                pass

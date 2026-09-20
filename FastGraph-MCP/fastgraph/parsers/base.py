@@ -31,6 +31,13 @@ class SymbolInfo:
     bases: list[CallRef] = field(default_factory=list)    # inherited types
     decorated: bool = False       # registered via a decorator/annotation
                                   # (FastAPI @app.get, Spring @GetMapping, ...)
+    param_types: dict = field(default_factory=dict)
+    """Declared parameter types, ``param_name -> type_name``.
+
+    Only *explicit annotations* are recorded (Python ``svc: UserService``, TS
+    ``function f(svc: UserService)``) — no inference. The resolver uses them
+    as receiver evidence: ``svc.run(...)`` with a declared type pins the
+    owner, turning otherwise-unresolvable member calls into resolved edges."""
 
 
 @dataclass

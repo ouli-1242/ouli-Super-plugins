@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import threading
@@ -112,13 +113,26 @@ def _extract_content_lines(lang: str, text: str) -> list[tuple[int, str, str]]:
 # dropped. Previously resolved WRONG edges (a `req.save()` linked to a local
 # `User.save` in the same directory) are not re-evaluated by the resolver -- it
 # only touches target_id IS NULL -- so a rebuild is required to clear them.
-INDEX_VERSION = "10"
+# "11": import_edges table (materialized import->file resolution for
+# file_deps / module_cycles / layering) and symbols.param_types (parameter
+# annotation evidence for call-target resolution). Both only affect freshly
+# computed data, but a rebuild is the cheap way to guarantee a consistent
+# snapshot across the schema change.
+INDEX_VERSION = "11"
 
 # Guard against accidentally walking a huge, unindexed directory (e.g. an
 # unactivated default root like a user's home folder): stop once this many
 # entries were checked. refresh() reports `skipped` so tools can hint at
 # activate_project().
 MAX_SCAN_ENTRIES = 200_000
+
+# Build-config files that decide how imports resolve (tsconfig paths / vite
+# aliases / Go module lines / uni-app sub-project roots). Their mtimes form a
+# fingerprint checked each refresh; a change invalidates graph's process-wide
+# resolution caches and forces an import_edges rebuild. Not indexed themselves.
+_BUILD_CONFIG_FILES = {
+    "tsconfig.json", "jsconfig.json", "go.mod", "pages.json",
+}
 
 
 @dataclass
@@ -140,10 +154,6 @@ class IndexStats:
     caller cannot tell "no symbols here" from "never looked"."""
 
 
-    """project-relative paths re-parsed by this refresh (the files that changed
-    since the previous one); used by changed_context on non-git projects."""
-
-
 class Indexer:
     def __init__(self, root: Path, db: DB, excludes: set[str] | None = None):
         self.root = root.resolve()
@@ -160,6 +170,15 @@ class Indexer:
         # and concurrent writes to the same sqlite connection crash with
         # InterfaceError / UNIQUE constraint races (see STRESS_TEST_REPORT P1-1).
         self._refresh_lock = threading.RLock()
+        # True when this refresh created or removed a file (as opposed to
+        # content-only edits): the *file set* drives import resolution, so any
+        # addition/deletion requires a full import_edges rebuild.
+        self._file_set_changed = False
+        # mtime fingerprint of build-config files (tsconfig.json, go.mod, ...)
+        # seen during the last walk; a change invalidates graph's resolution
+        # caches (aliases/module roots are cached process-wide) and forces an
+        # import_edges rebuild, since those configs decide how imports resolve.
+        self._cfg_sig: tuple | None = None
 
     def ignore_patterns(self) -> list[str]:
         """The `.fastgraphignore` rules loaded by the last ``refresh()``.
@@ -184,13 +203,16 @@ class Indexer:
         # reset per call: a trip in an earlier refresh (huge/unactivated root)
         # must not permanently suppress stale-file deletion afterwards
         self._walk_skipped = False
+        self._file_set_changed = False
         self._large_files = []
 
         # Desktop/Cursor may launch the stdio server from a fixed cwd (e.g.
         # System32); auto-detection then falls back to the user home. The home
-        # dir is never the intended project — bail fast and let tools hint at
-        # activate_project() instead of scanning it for minutes.
-        if self.root == user_home():
+        # dir — and anything covering it (C:\, C:\Users) — is never the intended
+        # project: bail fast and let tools hint at activate_project() instead of
+        # scanning it for minutes.
+        home = user_home()
+        if self.root == home or home.is_relative_to(self.root):
             stats.skipped = True
             self._walk_skipped = True
             return stats
@@ -226,8 +248,9 @@ class Indexer:
 
         to_parse: list[tuple[str, Path]] = []
         seen: set[str] = set()
+        cfg_sig_parts: list[float] = []
 
-        for p, st in self._walk():
+        for p, st in self._walk(cfg_sig_parts):
             rel = p.relative_to(self.root).as_posix()
             seen.add(rel)
             if st.st_size > MAX_FILE_SIZE:
@@ -247,6 +270,16 @@ class Indexer:
                 if rel not in seen:
                     self.db.delete_file(rel)
                     stats.deleted += 1
+
+        # Build-config files (tsconfig.json, go.mod, ...) changed since the last
+        # refresh: their content decides how imports resolve, so graph's
+        # process-wide caches (aliases, Go module roots, Rust crate roots) must
+        # be dropped and every import edge re-derived.
+        cfg_sig = tuple(cfg_sig_parts)
+        cfg_changed = cfg_sig != self._cfg_sig
+        self._cfg_sig = cfg_sig
+        if cfg_changed:
+            graph.clear_resolution_caches()
 
         if to_parse:
             stats.changed = [rel for rel, _ in to_parse]
@@ -271,6 +304,15 @@ class Indexer:
                 raise
 
         if stats.parsed or stats.deleted:
+            self.db.commit()
+
+        # import_edges are written per-file during _store_file; that is exact
+        # for content-only edits (the file set — and therefore resolution — is
+        # unchanged). When the file set or a build config changed, resolution
+        # outcomes for *other* files may shift too (a new file can satisfy a
+        # previously-unresolvable import), so rebuild every edge row once.
+        if stats.deleted or self._file_set_changed or cfg_changed:
+            self._rebuild_all_import_edges()
             self.db.commit()
 
         # Re-run resolution only when the symbol set can actually have changed
@@ -301,12 +343,15 @@ class Indexer:
 
     # ---------------- internals ----------------
 
-    def _walk(self) -> list[tuple[Path, os.stat_result]]:
+    def _walk(self, cfg_sig_parts: list[float] | None = None) -> list[tuple[Path, os.stat_result]]:
         """Walk the tree and return (path, stat) for every indexable file.
 
         The stat comes from the ``DirEntry`` (already fetched by ``is_dir``/
         ``is_file``), so the caller does not stat each file a second time —
-        halving the syscalls of the per-call incremental scan.
+        halving the syscalls of the per-call incremental scan. When
+        ``cfg_sig_parts`` is given, the mtime of every build-config file
+        encountered is appended, giving the caller a cheap change fingerprint
+        for files that decide import resolution but are not themselves indexed.
         """
         out: list[tuple[Path, os.stat_result]] = []
         stack = [self.root]
@@ -343,6 +388,8 @@ class Indexer:
                         st = e.stat(follow_symlinks=False)
                     except OSError:
                         continue
+                    if cfg_sig_parts is not None and name in _BUILD_CONFIG_FILES:
+                        cfg_sig_parts.append(st.st_mtime)
                     if language_for_path(name) is not None:
                         out.append((Path(e.path), st))
         return out
@@ -398,15 +445,26 @@ class Indexer:
                 "start_col": s.start_col,
                 "end_col": s.end_col,
                 "decorated": s.decorated,
+                "param_types": json.dumps(s.param_types or {}),
             }
             for s in result.symbols
         ]
+        if self.db.get_file_id(rel) is None:
+            self._file_set_changed = True
         fid = self.db.upsert_file(rel, lang, hash_, st.st_mtime, st.st_size)
         self.db.replace_file_symbols(fid, symbols)
         self.db.replace_file_imports(
             fid,
             [{"text": i.text, "kind": i.kind, "line": i.line} for i in result.imports],
         )
+        # Materialize this file's import->file edges now. Exact for content-only
+        # edits (the file set, hence resolution, is unchanged); when the file
+        # set changed, _refresh rebuilds every row afterwards.
+        edges: list[tuple[str, int]] = []
+        for imp in result.imports:
+            for target in graph.import_targets(self.db, imp.text, rel):
+                edges.append((target, imp.line))
+        self.db.replace_file_import_edges(fid, edges)
         self.db.replace_file_template_refs(
             fid, getattr(result, "template_refs", None) or []
         )
@@ -433,6 +491,26 @@ class Indexer:
             for b in s.bases:
                 rows.append((src, b.target, b.rtype, b.line))
         self.db.replace_file_relations(fid, rows)
+
+    def _rebuild_all_import_edges(self) -> None:
+        """Re-derive every file's import->file edges from scratch.
+
+        Runs when the file set changed (a new file can satisfy a previously
+        unresolvable import) or a build config (tsconfig/go.mod/...) changed.
+        Cost is O(total imports) resolution per rebuild — paid only when the
+        inputs to resolution changed, never on content-only edits.
+        """
+        for (rel,) in self.db.conn.execute("SELECT path FROM files ORDER BY path"):
+            fid = self.db.get_file_id(rel)
+            if fid is None:
+                continue
+            edges: list[tuple[str, int]] = []
+            for (text, line) in self.db.conn.execute(
+                "SELECT text, line FROM file_imports WHERE file_id=? ORDER BY line", (fid,)
+            ):
+                for target in graph.import_targets(self.db, text, rel):
+                    edges.append((target, line))
+            self.db.replace_file_import_edges(fid, edges)
 
 def _resolve_all(db: DB) -> None:
     """Resolve relations whose target_id is NULL against known symbols.
@@ -496,6 +574,18 @@ def _resolve_all(db: DB) -> None:
             imported_by[fid] = got
         return got
 
+    # Parameter annotations recorded at parse time (`def f(svc: UserService)`):
+    # the call text names its receiver and the annotation names the receiver's
+    # type, which together resolve `svc.run(...)` without full type inference.
+    param_types: dict[int, dict[str, str]] = {}
+    for sid, pt in db.conn.execute(
+        "SELECT id, param_types FROM symbols WHERE param_types != ''"
+    ):
+        try:
+            param_types[sid] = json.loads(pt)
+        except Exception:
+            pass
+
     for rel_id, source_id, target, rtype in pending:
         if rtype in ("calls", "references"):
             candidates = _candidates_for_target(db, sym_files, target)
@@ -510,7 +600,7 @@ def _resolve_all(db: DB) -> None:
                 # import, or an intra-class call -- to be linked.
                 if _member_target_plausible(
                     candidates[0], source_id, target,
-                    import_text_by_file, caller_file, sym_files,
+                    import_text_by_file, caller_file, sym_files, param_types,
                 ):
                     db.apply_resolution(rel_id, candidates[0])
             elif len(candidates) > 1:
@@ -535,6 +625,33 @@ def _resolve_all(db: DB) -> None:
                         ]
                         if len(by_import) == 1:
                             picked = by_import
+                if len(picked) != 1:
+                    # parameter-annotation evidence: `svc.run(...)` where the
+                    # caller declares `svc: UserService` -- the owner must be
+                    # that type. Cheap, explicit, and covers receivers the
+                    # import evidence misses (caller and service in the same
+                    # file, DI-provided instances).
+                    head = _target_head(target)
+                    ptype = param_types.get(source_id, {}).get(head, "")
+                    if ptype:
+                        by_type = [
+                            cid for cid in candidates
+                            if _owner_of(sym_files.get(cid, ("", ""))[1]) == ptype
+                        ]
+                        if len(by_type) == 1:
+                            picked = by_type
+                if len(picked) != 1 and src_fid is not None:
+                    # Java fully-qualified import: `import com.a.UserService;`
+                    # pins the candidate to package com.a
+                    # (com/a/UserService.java), which bare class-name evidence
+                    # cannot tell apart.
+                    imp = import_text_by_file.get(src_fid, "")
+                    fq = [
+                        cid for cid in candidates
+                        if _java_fq_imported(path_of_file(caller_file.get(cid)), imp)
+                    ]
+                    if len(fq) == 1:
+                        picked = fq
                 if len(picked) != 1:
                     # `self.helper()` / class-internal call: the caller's own
                     # class is the natural owner of a bare member name.
@@ -648,6 +765,7 @@ def _member_target_plausible(
     import_text_by_file: dict[int, str],
     caller_file: dict[int, int],
     sym_files: dict[int, tuple],
+    param_types: dict[int, dict[str, str]] | None = None,
 ) -> bool:
     """Should a *member* candidate be linked for this call?
 
@@ -657,8 +775,11 @@ def _member_target_plausible(
 
     - the caller lives in the same file as the candidate;
     - the call text itself names the owner (`user.save()` -> owner `User`);
+    - the receiver's declared parameter type matches the owner
+      (`svc.run()` with `svc: UserService` -> owner `UserService`);
     - caller and candidate are members of the same class (`self.helper()`);
-    - the owner name appears in the caller's imports.
+    - the owner name appears in the caller's imports (word-boundary match,
+      so owner `user` does not match an import of `user_service`).
 
     The previous "same directory is enough" rule was dropped: `req.save()`
     sitting next to an unrelated `User.save` linked the two and fed a bogus
@@ -675,12 +796,40 @@ def _member_target_plausible(
     head = _target_head(target)
     if head and _norm_ident(head) == _norm_ident(owner):
         return True  # `user.save()` names an owner `User`
+    if head and param_types:
+        # the receiver is an annotated parameter: `svc: UserService` + `svc.run()`
+        ptype = param_types.get(source_id, {}).get(head, "")
+        if ptype and ptype == owner:
+            return True
     src_owner = _owner_of(sym_files.get(source_id, ("", ""))[1])
     if src_owner and src_owner == owner:
         return True  # `self.helper()` -- the caller's own class owns the method
     if src_fid is not None:
-        return owner.lower() in import_text_by_file.get(src_fid, "")
+        imp = import_text_by_file.get(src_fid, "")
+        if not imp:
+            return False
+        return (
+            re.search(rf"(?<![\w$]){re.escape(owner.lower())}(?![\w$])", imp) is not None
+        )
     return True
+
+
+def _java_fq_imported(candidate_path: str, imp_text: str) -> bool:
+    """Does the caller's import text pin ``candidate_path`` by fully-qualified
+    Java name?
+
+    ``import com.a.UserService;`` names the package of
+    ``com/a/UserService.java`` — evidence a bare class-name match cannot
+    provide, since two packages may both define ``UserService``. The import
+    text is the caller's lowercased import concatenation.
+    """
+    if not imp_text or not candidate_path.endswith(".java"):
+        return False
+    pkg, _, stem = candidate_path.rpartition("/")
+    if not pkg:
+        return False
+    fq = (pkg.replace("/", ".") + "." + stem.rsplit(".", 1)[0]).lower()
+    return re.search(rf"(?<![\w.]){re.escape(fq)}(?![\w.])", imp_text) is not None
 
 
 _ALIAS_NAMED_RE = re.compile(r"import\s*\{([^}]*)\}\s*from\s*['\"]([^'\"]+)['\"]")

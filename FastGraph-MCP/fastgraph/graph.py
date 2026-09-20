@@ -85,11 +85,18 @@ def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
                 (parts[0],),
             ).fetchall()
         }
-        for (fp,) in db.conn.execute("SELECT path FROM files"):
-            if fp.rsplit("/", 1)[-1].rsplit(".", 1)[0] == parts[0]:
-                r = db.conn.execute("SELECT id FROM files WHERE path=?", (fp,)).fetchone()
-                if r:
-                    file_ids.add(r[0])
+        # Files whose basename stem equals the leading segment (svc.py in a
+        # 3-segment query `svc.Cls.m`). The stem_suffix_map already keys every
+        # file by its dotted-stem suffixes, so this is a dict lookup + one IN
+        # query instead of the previous scan of the files table with a nested
+        # per-file id lookup (N+1 on repos with many files).
+        stems = db.stem_suffix_map().get(parts[0].lower(), ())
+        if stems:
+            marks = ",".join("?" * len(stems))
+            for (fid,) in db.conn.execute(
+                f"SELECT id FROM files WHERE path IN ({marks})", stems
+            ):
+                file_ids.add(fid)
         seen = {r[0] for r in rows}
         for fid in file_ids:
             extra = db.conn.execute(
@@ -462,7 +469,7 @@ def impact_analysis(db: DB, name: str, max_depth: int = 3, limit: int = 50) -> d
     and flag test-related files."""
     roots = find_symbols(db, name)
     if not roots:
-        return {"symbol": name, "error": "not_found", "impact": {"HIGH": [], "MEDIUM": []}, "tests": []}
+        return {"symbol": name, "error": "not_found", "impact": {"HIGH": [], "MEDIUM": []}, "tests": [], "import_dependents": []}
     root_ids, member_ids = _expand_container_roots(db, roots)
 
     buckets: dict[str, list[dict]] = {"HIGH": [], "MEDIUM": []}
@@ -499,12 +506,33 @@ def impact_analysis(db: DB, name: str, max_depth: int = 3, limit: int = 50) -> d
         buckets[k] = [i for i in buckets[k] if not is_test(i)][:limit]
 
     total = len(buckets["HIGH"]) + len(buckets["MEDIUM"]) + len(tests)
+
+    # Import-level impact: files that import any file containing the symbol
+    # but show up under no call bucket. Changing a module's exported surface
+    # (a signature, a default export, a re-export) reaches these files even
+    # when no call edge crosses the boundary, so they must not silently
+    # vanish from the report.
+    root_paths = sorted({r.get("path") or "" for r in roots} - {""})
+    import_dependents: list[str] = []
+    if root_paths:
+        marks = ",".join("?" * len(root_paths))
+        import_dependents = [
+            r[0]
+            for r in db.conn.execute(
+                f"""SELECT DISTINCT f.path FROM import_edges e
+                      JOIN files f ON f.id = e.file_id
+                     WHERE e.target IN ({marks}) ORDER BY f.path LIMIT ?""",
+                (*root_paths, limit),
+            )
+        ]
+
     return {
         "symbol": name,
         "found": True,
         "impact": buckets,
         "tests": tests[:limit],
-        "total_affected": total,
+        "import_dependents": import_dependents,
+        "total_affected": total + len(import_dependents),
     }
 
 
@@ -652,6 +680,19 @@ _alias_cache: dict[tuple[Path, str], dict[str, str]] = {}
 # whole cache on overflow would thrash on repos with many directories.
 _ALIAS_CACHE_MAX = 4096
 _ALIAS_MAX_ASCENT = 64
+
+
+def clear_resolution_caches() -> None:
+    """Drop the process-wide import-resolution caches.
+
+    Alias maps (tsconfig/vite/uni-app), Go module roots and Rust crate roots
+    are keyed by directory and never expire on their own. The indexer calls
+    this when a build-config file (tsconfig.json, go.mod, ...) changed on
+    disk, so edits to those files take effect without restarting the server.
+    """
+    _alias_cache.clear()
+    _go_module_cache.clear()
+    _rust_root_cache.clear()
 
 
 def _alias_prefixes(db: DB, import_file: str | None = None) -> dict[str, str]:
@@ -1325,7 +1366,13 @@ def import_targets(db: DB, import_text: str, import_file: str) -> list[str]:
 
 
 def module_dependencies(db: DB, path: str) -> dict:
-    """File-level import view: what a file imports, and who imports it."""
+    """File-level import view: what a file imports, and who imports it.
+
+    Both directions read the materialized ``import_edges`` table, so this is
+    an indexed lookup rather than a re-resolution of every import row (the
+    importers direction used to re-run the resolver over every import of
+    every file in the repo on each call).
+    """
     resolved = resolve_file(db, path)
     if resolved is None:
         ambiguous = [
@@ -1341,23 +1388,38 @@ def module_dependencies(db: DB, path: str) -> dict:
     fid = db.get_file_id(resolved)
     if fid is None:
         return {"found": False, "path": resolved}
+    # targets per import line, straight from the edge table
+    targets_by_line: dict[int, list[str]] = {}
+    for tgt, line in db.conn.execute(
+        "SELECT target, line FROM import_edges WHERE file_id = ? ORDER BY line", (fid,)
+    ):
+        targets_by_line.setdefault(line, []).append(tgt)
     imports: list[dict] = []
     for text, line in db.conn.execute(
         "SELECT text, line FROM file_imports WHERE file_id = ? ORDER BY line", (fid,)
     ):
-        imports.append({"text": text[:120], "line": line, "resolves_to": import_targets(db, text, path)})
+        imports.append(
+            {"text": text[:120], "line": line, "resolves_to": targets_by_line.get(line, [])}
+        )
 
-    stem = path.rsplit(".", 1)[0].replace("/", ".").lower()
     importers: list[dict] = []
-    for (fid2, p) in db.conn.execute("SELECT id, path FROM files WHERE id != ?", (fid,)):
-        for text, line in db.conn.execute(
-            "SELECT text, line FROM file_imports WHERE file_id=?", (fid2,)
-        ):
-            for t in import_targets(db, text, p):
-                tstem = t.rsplit(".", 1)[0].replace("/", ".").lower()
-                if tstem == stem or tstem.endswith("." + stem):
-                    importers.append({"file": p, "line": line, "import": text[:120]})
-                    break
+    seen_pairs: set[tuple[str, int]] = set()
+    for p, line in db.conn.execute(
+        """SELECT f.path, e.line FROM import_edges e
+             JOIN files f ON f.id = e.file_id
+            WHERE e.target = ? ORDER BY f.path, e.line""",
+        (resolved,),
+    ):
+        if (p, line) in seen_pairs:
+            continue
+        seen_pairs.add((p, line))
+        row = db.conn.execute(
+            "SELECT text FROM file_imports WHERE file_id=? AND line=? LIMIT 1",
+            (db.get_file_id(p), line),
+        ).fetchone()
+        importers.append({"file": p, "line": line, "import": (row[0] if row else "")[:120]})
+        if len(importers) >= 30:
+            break
     return {"found": True, "imports": imports[:30], "importers": importers[:30]}
 
 
@@ -1569,15 +1631,17 @@ def file_metrics(db: DB, limit: int = 20) -> list[dict]:
 
 def module_cycles(db: DB, max_cycles: int = 10) -> list[dict]:
     """Directed import cycles between files (Strongly Connected Components
-    of the resolved-import graph). Self-imports count as 1-node cycles."""
-    adj: dict[str, set[str]] = {}
-    for (fid, path) in db.conn.execute("SELECT id, path FROM files"):
-        targets: set[str] = set()
-        for (text,) in db.conn.execute(
-            "SELECT text FROM file_imports WHERE file_id = ?", (fid,)
-        ):
-            targets.update(import_targets(db, text, path))
-        adj[path] = targets
+    of the resolved-import graph). Self-imports count as 1-node cycles.
+
+    The adjacency comes from the materialized ``import_edges`` table — the
+    resolver runs at refresh time, not per query.
+    """
+    adj: dict[str, set[str]] = {p: set() for (p,) in db.conn.execute("SELECT path FROM files")}
+    for src, tgt in db.conn.execute(
+        "SELECT f.path, e.target FROM import_edges e JOIN files f ON f.id = e.file_id"
+    ):
+        if src in adj:
+            adj[src].add(tgt)
 
     index: dict[str, int] = {}
     low: dict[str, int] = {}
@@ -1638,21 +1702,21 @@ def _entry_points(db: DB) -> list[str]:
 
 
 def _layering(db: DB) -> dict:
-    """Top-level dependency direction summary: dir A -> dir B counts."""
+    """Top-level dependency direction summary: dir A -> dir B counts.
+
+    Reads the materialized import-edge table (one indexed scan) instead of
+    re-resolving every import of every file.
+    """
     counts: dict[str, int] = {}
-    row_map = {r[0]: r[1] for r in db.conn.execute("SELECT id, path FROM files")}
-    # use file-level imports instead: module -> module edges
     pairs: dict[tuple[str, str], int] = {}
-    for (fid, text) in db.conn.execute("SELECT file_id, text FROM file_imports"):
-        src = row_map.get(fid)
-        if not src:
-            continue
+    for src, tgt in db.conn.execute(
+        "SELECT f.path, e.target FROM import_edges e JOIN files f ON f.id = e.file_id"
+    ):
         src_top = src.split("/")[0] if "/" in src else "(root)"
-        for cand in import_targets(db, text, src):
-            tgt_top = cand.split("/")[0] if "/" in cand else "(root)"
-            if src_top != tgt_top and "/" in cand:
-                k = (src_top, tgt_top)
-                pairs[k] = pairs.get(k, 0) + 1
+        tgt_top = tgt.split("/")[0] if "/" in tgt else "(root)"
+        if src_top != tgt_top and "/" in tgt:
+            k = (src_top, tgt_top)
+            pairs[k] = pairs.get(k, 0) + 1
     for (a, b), n in sorted(pairs.items(), key=lambda kv: -kv[1])[:10]:
         counts[f"{a} -> {b}"] = n
     return counts

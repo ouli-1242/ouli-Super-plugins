@@ -60,18 +60,33 @@ class CppAdapter:
             elif t == "function_definition":
                 name_node = node.child_by_field_name("declarator")
                 name = ""
+                qualified = ""
                 # Method names inside a class are `field_identifier` nodes
                 # (a top-level function's is `identifier`); accept both plus
                 # the typedef/struct forms, else class methods are dropped.
+                # An out-of-class definition (`void Cls::m() {}` in the .cpp)
+                # surfaces as a `qualified_identifier`: its last segment is
+                # the method, the head the owning class — without this the
+                # definition lands as a bare function unrelated to Cls.
                 while name_node is not None and name_node.type not in (
                     "identifier", "field_identifier", "type_identifier"
                 ):
+                    if name_node.type == "qualified_identifier":
+                        qualified = node_text(name_node, source, 160)
+                        break
                     name_node = name_node.child_by_field_name("declarator")
-                if name_node is not None:
+                if qualified:
+                    owner, _, method = qualified.rpartition("::")
+                    name = method or qualified
+                    owner = owner.replace("::", ".")
+                    parent = stack[-1].qualified_name if stack else (owner or None)
+                elif name_node is not None:
                     name = node_text(name_node, source, 120)
+                    parent = stack[-1].qualified_name if stack else None
+                else:
+                    return
                 if not name:
                     return
-                parent = stack[-1].qualified_name if stack else None
                 sym = SymbolInfo(
                     name=name, kind="method" if parent else "function",
                     qualified_name=parent + "." + name if parent else name,

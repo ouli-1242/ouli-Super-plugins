@@ -300,12 +300,18 @@ class Toolbox:
         result = graph.impact_analysis(tb.db, symbol, max_depth=max_depth, limit=limit)
         return self._finish(result, tb, refresh)
 
-    def changed_context(self, limit: int = 50, root: str | None = None) -> dict:
+    def changed_context(self, limit: int = 50, base: str | None = None, root: str | None = None) -> dict:
         tb = self._for_root(root)
         refresh = tb._ensure_fresh()
-        base = gitutil.git_root(tb.root)
-        if base is not None:
-            changes = gitutil.changed_files(tb.root, base=base)
+        base_dir = gitutil.git_root(tb.root)
+        if base_dir is not None:
+            # base given: diff that rev against the working tree (branch-level
+            # footprint); otherwise the uncommitted `git status` view.
+            changes = (
+                gitutil.changed_files_vs(tb.root, base)
+                if base
+                else gitutil.changed_files(tb.root, base=base_dir)
+            )
             source = "git"
         else:
             # Non-git project: git status is unavailable, so fall back to the
@@ -340,13 +346,16 @@ class Toolbox:
                 {"symbol": s["name"], "qualified_name": s["qualified_name"], "file": s["path"], "line": s["start_line"]}
                 for s in v[:limit]
             ]
-        return self._finish({
+        out = {
             "changed_files": capped_files,
             "changed_symbols": capped_symbols,
             "affected_callers": affected[:limit],
             "truncated": truncated_files or truncated_symbols,
             "source": source,
-        }, tb, refresh)
+        }
+        if base and source == "git":
+            out["base"] = base
+        return self._finish(out, tb, refresh)
 
     def project_overview(self, root: str | None = None) -> dict:
         tb = self._for_root(root)
@@ -435,7 +444,7 @@ class Toolbox:
             text = (tb.root / rel_path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             return ""
-        lines = text.split("\n")
+        lines = text.replace("\r\n", "\n").split("\n")
         return "\n".join(lines[max(0, start_line - 1):end_line])
 
     def _resolve_read_target(self, tb, path: str) -> tuple[str | None, bool, str]:
@@ -505,7 +514,7 @@ class Toolbox:
                 tb,
                 refresh,
             )
-        text = data.decode("utf-8", errors="replace")
+        text = data.decode("utf-8", errors="replace").replace("\r\n", "\n")
         lines = text.split("\n")
         total = len(lines)
         start = max(1, start_line)

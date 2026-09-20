@@ -119,6 +119,38 @@ class GoAdapter:
                 for ts in node.named_children:
                     if ts.type == "type_spec":
                         name = node_text(ts.child_by_field_name("name"), source, 120)
+                        itype = next(
+                            (c for c in ts.named_children if c.type == "interface_type"), None
+                        )
+                        if itype is not None:
+                            # Interface methods are declared, never "defined":
+                            # without symbols here every `iface.Method()`
+                            # stayed unresolved forever. Record each
+                            # method_elem as a member of the interface.
+                            sym = SymbolInfo(
+                                name=name, kind="interface", qualified_name=name,
+                                signature=f"interface {name}", doc="",
+                                start_line=ts.start_point[0] + 1, end_line=ts.end_point[0] + 1,
+                                start_col=ts.start_point[1], end_col=ts.end_point[1],
+                            )
+                            symbols.append(sym)
+                            for elem in itype.named_children:
+                                if elem.type != "method_elem":
+                                    continue
+                                mname_node = elem.child_by_field_name("name")
+                                mname = node_text(mname_node, source, 120)
+                                if not mname:
+                                    continue
+                                symbols.append(SymbolInfo(
+                                    name=mname, kind="method",
+                                    qualified_name=f"{name}.{mname}",
+                                    signature=f"{mname}()",
+                                    doc="", start_line=elem.start_point[0] + 1,
+                                    end_line=elem.end_point[0] + 1,
+                                    start_col=elem.start_point[1], end_col=elem.end_point[1],
+                                    parent=name,
+                                ))
+                            continue
                         kind = "struct" if any(c.type == "struct_type" for c in ts.named_children) else "type"
                         sym = SymbolInfo(
                             name=name, kind=kind, qualified_name=name,

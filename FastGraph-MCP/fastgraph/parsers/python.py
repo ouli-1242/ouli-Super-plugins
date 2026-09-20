@@ -7,7 +7,7 @@ from tree_sitter import Language, Parser
 
 from fastgraph.parsers.base import CallRef, ImportRef, ParseResult, SymbolInfo
 from fastgraph.parsers.registry import register_adapter
-from fastgraph.parsers.util import call_targets, node_text
+from fastgraph.parsers.util import call_targets, node_text, param_types_of
 
 
 def _parse_calls(node, source: bytes) -> list[CallRef]:
@@ -174,6 +174,7 @@ class PythonAdapter:
                     parent=parent,
                     calls=_parse_calls(node, source),
                     decorated=decorated,
+                    param_types=param_types_of(params, source),
                 )
                 symbols.append(sym)
                 for c in node.named_children:

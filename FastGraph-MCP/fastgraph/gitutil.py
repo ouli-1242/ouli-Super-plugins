@@ -68,6 +68,52 @@ def changed_files(root: Path, base: Path | None = None) -> dict:
     return changes
 
 
+def changed_files_vs(root: Path, base: str) -> dict:
+    """{path: status} for every tracked change between ``base`` and the
+    working tree, plus untracked files as "added".
+
+    ``base`` is any rev the repo resolves (branch, tag, ``HEAD~5``, a SHA), so
+    a whole branch's footprint is visible, not just uncommitted edits. Uses
+    ``git diff --name-status <base>`` (worktree vs base — includes uncommitted
+    edits) and merges ``git status``'s untracked entries, which diff cannot
+    see. Renames report the *new* path: that is the file the index holds.
+    """
+    changes: dict[str, str] = {}
+    base_dir = git_root(root)
+    if base_dir is None:
+        return changes
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(base_dir), "-c", "core.quotepath=false",
+             "diff", "--name-status", base],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
+        )
+    except Exception:
+        return changes
+    if out.returncode != 0:
+        return changes
+    status_map = {"A": "added", "D": "deleted", "R": "renamed", "C": "renamed", "T": "modified"}
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        status = parts[0][0].upper()
+        path = parts[-1]
+        if not path or path.startswith(".") or ".fastgraph" in path.split("/"):
+            continue
+        try:
+            rel = (base_dir / path).resolve().relative_to(base_dir.resolve()).as_posix()
+        except (ValueError, OSError):
+            continue
+        changes[rel] = status_map.get(status, "modified")
+    for rel, st in changed_files(root, base=base_dir).items():
+        if st == "added":
+            changes.setdefault(rel, "added")
+    return changes
+
+
 def changed_symbols(db, changes: dict[str, str]) -> dict[str, list[dict]]:
     """Map status->symbols that live in changed files."""
     out: dict[str, list[dict]] = {}

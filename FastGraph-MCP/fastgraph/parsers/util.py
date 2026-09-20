@@ -3,27 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
-
-try:
-    from tree_sitter import Language, Parser
-except ImportError:  # pragma: no cover
-    Language = Parser = None  # type: ignore
-
-
-class TSParser:
-    """Cached per-species tree-sitter parser."""
-
-    _parsers: dict[str, Parser] = {}
-
-    @classmethod
-    def for_lang(cls, lang) -> Parser:
-        key = lang.name
-        p = cls._parsers.get(key)
-        if p is None:
-            p = Parser(lang)
-            cls._parsers[key] = p
-        return p
 
 
 def node_text(node, source: bytes, limit: int = 300) -> str:
@@ -35,27 +14,66 @@ def node_text(node, source: bytes, limit: int = 300) -> str:
         return ""
 
 
-def kind_for(node, is_method: bool) -> str:
-    if is_method:
-        return "method"
-    t = node.type
-    if "class" in t or t == "struct_specifier" or t == "struct_item":
-        return "class"
-    return "function"
+# Names that wrap a real type instead of being one: taking the first
+# identifier of `Optional[UserService]` / `Array<UserService>` would record
+# the wrapper, not the receiver's type.
+_TYPE_WRAPPER_RE = re.compile(r"[A-Za-z_$][\w$]*")
+_TYPE_WRAPPERS = {
+    # Python typing / builtins used as wrappers
+    "Optional", "Union", "List", "Dict", "Set", "Tuple", "FrozenSet",
+    "Sequence", "Iterable", "Callable", "Any", "Type", "Final", "ClassVar",
+    "Annotated", "Literal", "list", "dict", "set", "tuple", "type",
+    # TS utility / builtin wrappers
+    "Array", "Promise", "Record", "Partial", "Readonly", "ReadonlyArray",
+    "Map", "Set", "Pick", "Omit", "NonNullable", "string", "number",
+    "boolean", "any", "unknown", "never", "void", "object", "symbol",
+    "bigint",
+}
 
 
-def walk(node, fn, depth: int = 0) -> None:
-    if depth > 100:
-        return
-    fn(node, depth)
-    for child in node.named_children:
-        walk(child, fn, depth + 1)
+def first_type_ident(text: str) -> str:
+    """First meaningful identifier of a type annotation's text.
+
+    ``Optional[UserService]`` -> ``UserService``; ``NS.UserService`` -> ``NS``
+    (harmless: it simply never matches a candidate owner). Empty when only
+    wrapper names remain.
+    """
+    for m in _TYPE_WRAPPER_RE.finditer(text or ""):
+        if m.group(0) not in _TYPE_WRAPPERS:
+            return m.group(0)
+    return ""
 
 
-def split_identifier(text: str) -> list[str]:
-    """Split identifiers on dots/colons/slashes for resolution."""
-    parts = re.split(r"[.:/]", text)
-    return [p for p in parts if p]
+def param_types_of(params_node, source: bytes) -> dict[str, str]:
+    """Parameter-name -> type-name for one language-agnostic parameter list.
+
+    Shared by the Python and TS/JS adapters, which both name the annotation
+    field ``type``; the parameter name is taken from the ``pattern`` field
+    when present (TS) or from the first identifier child (Python's
+    ``typed_parameter``).
+    """
+    out: dict[str, str] = {}
+    if params_node is None:
+        return out
+
+    def add(name: str, type_text: str) -> None:
+        if name and name not in ("self", "cls") and re.fullmatch(r"[A-Za-z_$][\w$]*", name):
+            t = first_type_ident(type_text)
+            if t:
+                out[name] = t
+
+    for p in params_node.named_children:
+        if p.type in ("required_parameter", "optional_parameter"):
+            pat = p.child_by_field_name("pattern")
+            tann = p.child_by_field_name("type")
+            if pat is None or tann is None:
+                continue
+            add(node_text(pat, source, 120), node_text(tann, source, 200))
+        elif p.type == "typed_parameter":
+            kids = p.named_children
+            if len(kids) >= 2 and kids[0].type == "identifier":
+                add(node_text(kids[0], source, 120), node_text(kids[1], source, 200))
+    return out
 
 
 def call_targets(fn, source: bytes, limit: int = 160) -> list[str]:
@@ -83,7 +101,3 @@ def call_targets(fn, source: bytes, limit: int = 160) -> list[str]:
     if "." in text and "(" not in text and not text.startswith(("this.", "self.")):
         return [bare, text]
     return [bare]
-
-
-def display_line(line: int) -> str:
-    return str(line + 1) if line >= 0 else "?"

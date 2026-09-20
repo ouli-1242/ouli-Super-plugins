@@ -10,7 +10,7 @@ from tree_sitter import Language, Parser
 
 from fastgraph.parsers.base import CallRef, ImportRef, ParseResult, SymbolInfo
 from fastgraph.parsers.registry import register_adapter
-from fastgraph.parsers.util import call_targets, node_text
+from fastgraph.parsers.util import call_targets, node_text, param_types_of
 
 _TS_LANGS: dict[str, Language] = {
     "typescript": Language(tree_sitter_typescript.language_typescript()),
@@ -186,6 +186,7 @@ class TSAdapter:
                     start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
                     parent=parent, calls=_calls_in(node, source),
+                    param_types=param_types_of(params, source),
                 )
                 symbols.append(sym)
                 for c in node.named_children:
@@ -202,6 +203,7 @@ class TSAdapter:
                     start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
                     parent=parent, calls=_calls_in(node, source),
+                    param_types=param_types_of(params, source),
                 )
                 symbols.append(sym)
                 for c in node.named_children:
@@ -237,6 +239,41 @@ class TSAdapter:
                 symbols.append(sym)
                 for c in node.named_children:
                     walk(c, stack + [sym])
+            elif t in ("field_definition", "public_field_definition"):
+                # class field arrow function (`handleClick = () => {}`, React
+                # class components bind handlers this way): previously the
+                # walk fell through the else branch and both the symbol and
+                # its call edges were lost. Only function-valued fields become
+                # symbols; plain data fields stay out (symbol noise).
+                value = node.child_by_field_name("value")
+                name_node = node.child_by_field_name("property")
+                if name_node is None:
+                    name_node = next(
+                        (c for c in node.named_children
+                         if c.type in ("property_identifier", "private_property_identifier",
+                                       "identifier")),
+                        None,
+                    )
+                vname = node_text(name_node, source, 120)
+                if (
+                    stack
+                    and value is not None
+                    and value.type in ("arrow_function", "function_expression")
+                    and re.fullmatch(r"[A-Za-z_$][\w$]*", vname or "")
+                ):
+                    parent = stack[-1].qualified_name if stack else None
+                    params = value.child_by_field_name("parameters")
+                    sym = SymbolInfo(
+                        name=vname, kind="method",
+                        qualified_name=parent + "." + vname if parent else vname,
+                        signature=f"{vname} = ({node_text(params, source, 200) if params else ''}) => …",
+                        doc=_js_doc(node, source),
+                        start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
+                        start_col=node.start_point[1], end_col=node.end_point[1],
+                        parent=parent, calls=_calls_in(value, source),
+                        param_types=param_types_of(params, source),
+                    )
+                    symbols.append(sym)
             elif t in ("lexical_declaration", "variable_declaration"):
                 for v in node.named_children:
                     if v.type != "variable_declarator":

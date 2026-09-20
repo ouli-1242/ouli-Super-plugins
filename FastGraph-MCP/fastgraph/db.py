@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS symbols (
     end_line       INTEGER NOT NULL,
     start_col      INTEGER NOT NULL DEFAULT 0,
     end_col        INTEGER NOT NULL DEFAULT 0,
-    decorated      INTEGER NOT NULL DEFAULT 0
+    decorated      INTEGER NOT NULL DEFAULT 0,
+    param_types    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sym_name    ON symbols(name);
 CREATE INDEX IF NOT EXISTS idx_sym_qname   ON symbols(qualified_name);
@@ -46,6 +47,10 @@ CREATE TABLE IF NOT EXISTS relations (
 );
 CREATE INDEX IF NOT EXISTS idx_rel_source ON relations(source_id);
 CREATE INDEX IF NOT EXISTS idx_rel_target ON relations(target_id);
+-- exact-text lookups (`_callers_with_class` folding `target = ?`) used to
+-- scan the whole relations table; the prefix-wildcard LIKEs stay scans, but
+-- the equality branch is the common one on constructor/qualified folds.
+CREATE INDEX IF NOT EXISTS idx_rel_target_text ON relations(target);
 
 CREATE TABLE IF NOT EXISTS file_imports (
     id       INTEGER PRIMARY KEY,
@@ -55,6 +60,20 @@ CREATE TABLE IF NOT EXISTS file_imports (
     line     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_fimp_file ON file_imports(file_id);
+
+-- Materialized import->file resolution, computed by the indexer at refresh
+-- time. file_deps / module_cycles / layering used to re-run the resolver over
+-- every import of every file on every call (O(files x imports) per query);
+-- with this table they become indexed reads. Rebuilt wholesale whenever the
+-- *file set* changes (a new file can resolve a previously-unresolvable
+-- import); content-only edits only recompute the changed file's own rows.
+CREATE TABLE IF NOT EXISTS import_edges (
+    file_id  INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    target   TEXT NOT NULL,
+    line     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_impedges_file   ON import_edges(file_id);
+CREATE INDEX IF NOT EXISTS idx_impedges_target ON import_edges(target);
 
 CREATE TABLE IF NOT EXISTS parse_errors (
     path   TEXT PRIMARY KEY,
@@ -187,6 +206,10 @@ class DB:
             self.conn.execute(
                 "ALTER TABLE symbols ADD COLUMN decorated INTEGER NOT NULL DEFAULT 0"
             )
+        if "param_types" not in cols:
+            self.conn.execute(
+                "ALTER TABLE symbols ADD COLUMN param_types TEXT NOT NULL DEFAULT ''"
+            )
 
     # ---------------- files ----------------
 
@@ -297,17 +320,26 @@ class DB:
             return
         self.conn.executemany(
             "INSERT INTO symbols (file_id, name, kind, qualified_name, signature, doc, "
-            "start_line, end_line, start_col, end_col, decorated) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "start_line, end_line, start_col, end_col, decorated, param_types) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             [
                 (
                     file_id, s["name"], s["kind"], s["qualified_name"], s["signature"],
                     s["doc"], s["start_line"], s["end_line"], s["start_col"], s["end_col"],
-                    s.get("decorated", False),
+                    s.get("decorated", False), s.get("param_types", "") or "",
                 )
                 for s in symbols
             ],
         )
+
+    def replace_file_import_edges(self, file_id: int, rows: list[tuple[str, int]]) -> None:
+        """rows: (resolved target path, import line)."""
+        self.conn.execute("DELETE FROM import_edges WHERE file_id=?", (file_id,))
+        if rows:
+            self.conn.executemany(
+                "INSERT INTO import_edges (file_id, target, line) VALUES (?,?,?)",
+                [(file_id, t, ln) for t, ln in rows],
+            )
 
     def replace_file_imports(self, file_id: int, imports: list[dict]) -> None:
         self.conn.execute("DELETE FROM file_imports WHERE file_id=?", (file_id,))
