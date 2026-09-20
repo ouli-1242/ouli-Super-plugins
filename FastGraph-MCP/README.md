@@ -1,6 +1,15 @@
+<div align="center">
+
 # FastGraph-MCP
 
-轻量级代码智能 [MCP](https://modelcontextprotocol.io) 服务器：AST + 增量索引 + 调用图。无 embedding、无图数据库、无 LSP，低内存、低 context。
+**轻量级代码智能 MCP：AST + 增量索引 + 调用图。无 embedding、无图数据库、无 LSP，低内存、低 context。**
+
+<a href="https://pypi.org/project/fastgraph-mcp/"><img src="https://img.shields.io/pypi/v/fastgraph-mcp.svg" alt="PyPI version"></a>
+<img src="https://img.shields.io/pypi/pyversions/fastgraph-mcp.svg" alt="Python 3.11+">
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
+<img src="https://img.shields.io/badge/transport-stdio-blueviolet.svg" alt="MCP stdio transport">
+
+</div>
 
 定位是**代码导航层**：代码在哪、谁调用谁、改了影响谁、刚改了什么——补 grep（分不清定义与调用点）和 LSP（无全局调用图/影响分析）的短板。读改代码、重构、diagnostics 交给编辑器/LSP 工具。
 

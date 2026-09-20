@@ -1,13 +1,14 @@
+<div align="center">
+
 # OpenEye
 
-为纯文本大模型提供视觉能力的 MCP Server —— 让不会看图的模型也能读图、识字、解表格、复刻 UI。
-
-<p align="center">
+**为纯文本大模型提供视觉能力的 MCP Server —— 让不会看图的模型也能读图、识字、解表格、复刻 UI。**
   <a href="https://pypi.org/project/openeye-mcp/"><img src="https://img.shields.io/pypi/v/openeye-mcp.svg" alt="PyPI version"></a>
   <img src="https://img.shields.io/pypi/pyversions/openeye-mcp.svg" alt="Python 3.11+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/transport-stdio-blueviolet.svg" alt="MCP stdio transport">
-</p>
+
+</div>
 
 OpenEye 是一个 **stdio 类型的 MCP Server**：它把视觉模型（GPT / Claude / Gemini / 通义 / 智谱 / 本地 Ollama 等）包装成 6 个 MCP 工具，接到 Claude Code、Cursor、Cline 等 coding agent 上，原本只能处理文本的模型就获得了识图能力——分析 UI 截图、照抄报错文字、读表格、按图还原前端。
 
