@@ -18,7 +18,7 @@
 |---|---|---|---|
 | [`FastGraph-MCP/`](FastGraph-MCP/) | [`fastgraph-mcp`](https://github.com/ouli-1242/FastGraph-mcp) | 0.2.1 | 轻量代码智能 MCP：AST + 增量索引 + 调用图 |
 | [`Dhole-MCP/`](Dhole-MCP/) | [`dhole-mcp`](https://github.com/ouli-1242/dhole-mcp) | 14.2 | 网页抓取/爬取/反爬/PDF/搜索，8 个工具；新增搜狗微信与 tavily/exa/bocha 搜索后端 |
-| [`DeepEye-MCP/`](DeepEye-MCP/) | [`deepeye-mcp`](https://github.com/ouli-1242/deepeye-mcp) | 0.2.0 | 为文本模型提供视觉能力：描述/OCR/问答/布局 |
+| [`OpenEye-MCP/`](OpenEye-MCP/) | [`openeye-mcp`](https://github.com/ouli-1242/openeye-mcp) | 0.3.0 | 为文本模型提供视觉能力：描述/OCR/问答/布局/表格/多图；5 类视觉后端可切换 |
 
 安装：`pip install fastgraph-mcp` / `pip install "dhole-mcp[all]"` 
 
