@@ -79,6 +79,17 @@ dhole -u    # 自更新（本 fork 默认关闭）
 | `resolve_url` | 解析 URL 最终地址（跟随重定向，不下载页面体） |
 | `cache_clear` | 清除抓取缓存 |
 
+### smart_search 常用参数
+
+| 参数 | 作用 |
+|------|------|
+| `max_results` | 最多返回条数，1–50，默认 6（超出范围**静默钳制**，不报错） |
+| `site` | 只保留该域名的结果（按最终 URL 的域名匹配） |
+| `exclude_sites` | 排除这些域名，传列表 |
+| `freshness` | 时效过滤，仅接受 `day` / `week` / `month` / `year`，其他值**直接报错** |
+| `page` | 翻页，0–10，默认 0，超范围**直接报错** |
+| `fetch_content` | `true` 时自动抓回正文：取相关性 `high` 的前 3 条（无 `high` 则退化为前 3 条），每条截断 8000 字符，并按 `focus=query` 做聚焦提取 |
+
 ## 配置
 
 所有环境变量均可选，默认零配置可用：
@@ -88,9 +99,29 @@ dhole -u    # 自更新（本 fork 默认关闭）
 | `DHOLE_SEARCH_PROXY` | 搜索引擎代理，逗号分隔可轮换（也自动读取 `HTTPS_PROXY` 等） |
 | `DHOLE_BROWSER_IDLE_TIMEOUT` | 浏览器空闲关闭秒数（默认 300，`0` 永不关闭） |
 | `DHOLE_SEARCH_DEADLINE` | 单次搜索整体截止秒数（默认 16） |
-| `DHOLE_BRIGHTDATA_API_KEY` | 启用 Bright Data SERP 付费后端（可选） |
+| `DHOLE_BRIGHTDATA_API_KEY` | 启用 Bright Data SERP 后端 —— **唯一需要密钥的搜索引擎**，行为见下节 |
+| `DHOLE_BRIGHTDATA_ZONE` | Bright Data zone 名（默认 `dhole`） |
+| `DHOLE_BRIGHTDATA_COUNTRY` | Google 结果地区（默认 `us`） |
 | `DHOLE_SSRF_DNS_RECHECK` | 设 `1` 开启 DNS 解析内网复查（默认关闭） |
 | `DHOLE_UPDATE_PACKAGE` | 自更新目标发行名（发布自己的发行版后设置以启用） |
+| `DHOLE_UPDATE_INDEX_URL` | 自更新/自愈时传给 pip 的 `--index-url`（不设则用 pip 默认源） |
+| `DHOLE_TAVILY_API_KEY` / `DHOLE_EXA_API_KEY` / `DHOLE_BOCHA_API_KEY` | 对应 keyed 引擎的密钥（均默认不跑，`engines=` 点名才调用） |
+| `DHOLE_DEFAULT_ENGINES` | 覆盖免密默认池，逗号分隔（如 `bing,yandex,sogou_weixin`；被墙引擎不再每轮陪跑）。未设用上游默认 5 个 |
+
+免密引擎连续 3 次连接失败（DNS/拒连/超时，通常是被墙）会自动冷却 10 分钟并持久化，期间不再参与搜索；任何一次成功即清零。被反爬封（403/503）的冷却仍是 60 秒。 |
+
+### Keyed 搜索后端（brightdata / tavily / exa / bocha）
+
+设了 `DHOLE_BRIGHTDATA_API_KEY` 即启用，没有额外开关。它向 `api.brightdata.com/request`
+请求 `google.com/search` 的结果页（`data_format=parsed_light`），与免费引擎**并行**执行。
+
+- **按次消耗，且默认不跑**：keyed 引擎只有 `engines=` 显式点名才执行（命中搜索缓存则连调用都不发）
+- **`engines=["brightdata"]` 可单独选它**：只跑付费后端；未配 key 时报错直指 `DHOLE_BRIGHTDATA_API_KEY`，不会把你引去查代理。可选引擎名全部来自 `_DHOLE_TO_BACKEND` 这一张表 —— 8 个免密的加它
+- **不拉高共识门槛**：`min_engines = min(3, 免费引擎数)` 只按免费引擎计算，它不计入
+- **提前返回时不取消**：免费引擎凑够结果触发早退时，其余任务被 cancel，但 Bright Data 会等它跑完，避免已花出去的配额白花
+- **失败大多静默**：非 200 或任何异常都返回空列表、只记 debug 日志，不影响本次搜索结果。**401/403 除外** —— key 错误或过期会抛 `BrightDataAuthError`，在 `status` 里显示为 `error:BrightDataAuthError`，不会伪装成「没有结果」；它也不触发熔断（key 错了冷却 60 秒毫无意义）
+- 单次 HTTP 超时取 `max(DHOLE_SEARCH_DEADLINE, 20)`：默认（deadline 16 秒）下仍是 20 秒 —— SERP 渲染要时间，且配额在请求发出那一刻就已花掉；但你调高 deadline 它会跟着涨
+- 失败响应体写日志前会先脱敏。注意 `security.redact_api_key()` 的正则只认 `sk-`/`pk-`/`api_key-` 前缀和带凭据的代理 URL，**盖不住 Bright Data 自己的 key 形状**，所以额外拿已知 key 做了定向替换
 
 ## 已知限制
 

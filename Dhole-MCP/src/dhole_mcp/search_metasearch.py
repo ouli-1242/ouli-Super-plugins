@@ -33,7 +33,7 @@ from functools import cached_property
 from random import SystemRandom
 from time import time
 from typing import Any, ClassVar, Optional, TypeVar
-from urllib.parse import quote, unquote_plus, urlparse
+from urllib.parse import quote, unquote_plus, urljoin, urlparse
 
 import h2
 import httpcore
@@ -42,6 +42,8 @@ import primp
 from fake_useragent import UserAgent
 from lxml import html
 from lxml.etree import HTMLParser as LHTMLParser
+
+from dhole_mcp.security import redact_api_key
 
 logger = logging.getLogger(__name__)
 random = SystemRandom()
@@ -80,10 +82,8 @@ def _get_search_proxy() -> str | None:
 _SEARCH_DEADLINE = float(os.environ.get("DHOLE_SEARCH_DEADLINE", "16") or "16")
 _ua = UserAgent()
 
-# Bright Data SERP API (priority backend when configured)
-# 需自行配置：设置 DHOLE_BRIGHTDATA_API_KEY 启用，未设置（或置空）则禁用该后端。
+# Bright Data SERP API（keyed 引擎之一，见下方 KeyedApiEngine）
 # 此仓库为公开仓库，密钥只从环境变量读取，严禁硬编码进源码。
-_BRIGHTDATA_API_KEY = os.environ.get("DHOLE_BRIGHTDATA_API_KEY") or ""
 _BRIGHTDATA_ZONE = os.environ.get("DHOLE_BRIGHTDATA_ZONE", "dhole")
 _BRIGHTDATA_ENDPOINT = "https://api.brightdata.com/request"
 _BRIGHTDATA_COUNTRY = os.environ.get("DHOLE_BRIGHTDATA_COUNTRY", "us")  # Google result region
@@ -96,6 +96,27 @@ class MetaSearchException(Exception):
 
 class MetaTimeoutException(MetaSearchException):
     """A backend or the whole search timed out."""
+
+
+class BrightDataAuthError(MetaSearchException):
+    """Bright Data rejected the credentials (bad/expired key, unauthorized zone).
+
+    Deliberately NOT a MetaBlockedException: a wrong key is permanent, so routing
+    it through the circuit breaker would cool the backend down for 60s and surface
+    the failure as a silent empty result -- indistinguishable from 'no hits'.
+    """
+
+
+class TavilyAuthError(MetaSearchException):
+    """Tavily rejected the credentials (bad/expired key, out of credits)."""
+
+
+class ExaAuthError(MetaSearchException):
+    """Exa rejected the credentials. 实测无 key/欠费回 402 Payment required."""
+
+
+class BochaAuthError(MetaSearchException):
+    """博查拒绝凭据（key 无效或欠费）。"""
 
 
 class MetaBlockedException(MetaSearchException):
@@ -653,69 +674,265 @@ _DHOLE_TO_BACKEND = {
     "duckduckgo": "duckduckgo", "ddg": "duckduckgo",  # ddg is a common alias
     "bing": "bing",
     "yahoo": "yahoo", "wikipedia": "wikipedia",
-    "brave": "brave", "yandex": "yandex",
+    "brave": "brave", "yandex": "yandex", "sogou_weixin": "sogou_weixin",
     "grokipedia": "grokipedia",
+    # Paid JSON backends: selectable by name, run on their own track (see
+    # KeyedApiEngine) -- absent from _TEXT_ENGINES by design.
+    "brightdata": "brightdata",
+    "tavily": "tavily",
+    "exa": "exa",
+    "bocha": "bocha",
 }
 # 国内网默认池：bing/yandex 可达无需 VPN；ddg/brave/yahoo 需 VPN。
 # 保留完整池（VPN 时更多信号），但 bing 排首位作为国内稳定兜底。
 _DEFAULT_BACKENDS = ["bing", "duckduckgo", "brave", "yahoo", "yandex"]
 
 
-# ─── Bright Data SERP API (priority backend) ────────────────────────────────
+class SogouWeixin(BaseSearchEngine):
+    """搜狗微信搜索（weixin.sogou.com）：免费、国内裸网直连（实测 ~0.2s），
+    独家内容池 —— 微信公众号文章在 Bing/百度里搜不全。
 
-def _brightdata_serp_search(query: str, max_results: int = 10) -> list:
-    """Call Bright Data SERP API. Returns list of result objects with .title/.href/.body.
-
-    Synchronous (blocking HTTP) — call from a thread via asyncio.to_thread().
-    Returns empty list on any failure (never raises).
+    结果 href 是搜狗的 /link?url=... 跳转包装（带 token，会过期），不是文章
+    原始 URL；如实返回包装链接，浏览器可直接打开。
     """
-    if not _BRIGHTDATA_API_KEY:
-        return []
-    try:
-        import httpx
+
+    name = "sogou_weixin"
+    provider = "sogou"
+    search_url = "https://weixin.sogou.com/weixin"
+    # 摘要 txt-info 与标题 txt-box 是 li 下的兄弟节点，必须切在 li 层
+    items_xpath = '//ul[contains(@class,"news-list")]//li[div[@class="txt-box"]]'
+    elements_xpath: ClassVar[Mapping[str, str]] = {
+        "title": ".//div[contains(@class,'txt-box')]//h3/a//text()",
+        "href": ".//div[contains(@class,'txt-box')]//h3/a/@href",
+        "body": ".//*[contains(@class,'txt-info')]//text()",
+    }
+
+    def build_payload(self, query: str, region: str, safesearch: str,
+                      timelimit: str | None, page: int = 1, **kwargs: str) -> dict[str, Any]:
+        return {"type": "2", "query": query}
+
+    def extract_results(self, html_text: str) -> list[Any]:
+        results = super().extract_results(html_text)
+        for r in results:
+            # 去掉高亮标记残留；/link 相对路径补全为可打开的绝对链接
+            r.title = r.title.replace("red_beg", "").replace("red_end", "").strip()
+            if r.href.startswith("/"):
+                r.href = urljoin("https://weixin.sogou.com", r.href.replace("&amp;", "&"))
+        return results
+
+
+# 搜狗微信注册（类定义在其上方）
+_TEXT_ENGINES["sogou_weixin"] = SogouWeixin
+
+# ─── keyed JSON search APIs (Bright Data / Tavily / Exa / Bocha) ────────────
+# 这些后端不走 BaseSearchEngine 的 HTML 抓取契约：都是 POST JSON + Bearer key。
+# 策略：**默认不跑**，只有 engines= 显式点名才执行 —— 每次调用都是真金白银。
+
+
+class KeyedApiEngine:
+    """带密钥 JSON 搜索 API 的公共骨架。
+
+    子类只实现 build_request/parse_response；鉴权失败、超时、日志脱敏、
+    「非 200 静默返回空」都由 search_json 统一处理。
+    """
+
+    name: ClassVar[str]
+    env_var: ClassVar[str]
+    endpoint: ClassVar[str]
+    auth_codes: ClassVar[tuple] = (401, 403)
+    timeout_floor: ClassVar[float] = 20.0
+
+    AuthError: ClassVar[type] = MetaSearchException
+
+    @classmethod
+    def api_key(cls) -> str:
+        return os.environ.get(cls.env_var) or ""
+
+    @classmethod
+    def mask(cls, text: str) -> str:
+        """redact_api_key 的正则只认 sk-/pk-/api_key- 前缀，盖不住各家 key 的
+        形状，所以用已知值做定向替换。空 key 时 str.replace("", x) 会把标记
+        插进每个字符之间，必须防。"""
+        masked = redact_api_key(text)
+        key = cls.api_key()
+        if key:
+            masked = masked.replace(key, "[API_KEY_REDACTED]")
+        return masked
+
+    def build_request(self, query: str, max_results: int, timelimit: Optional[str]) -> tuple:
+        raise NotImplementedError
+
+    def parse_response(self, data: Any) -> list:
+        raise NotImplementedError
+
+    def search_json(self, query: str, max_results: int, timelimit: Optional[str] = None) -> list:
+        key = self.api_key()
+        if not key:
+            raise self.AuthError(f"{self.name} requires {self.env_var}, which is not set")
+        try:
+            url, headers, payload = self.build_request(query, max_results, timelimit)
+            resp = httpx.post(
+                url, json=payload, headers=headers,
+                timeout=max(_SEARCH_DEADLINE, self.timeout_floor),
+            )
+            if resp.status_code in self.auth_codes:
+                raise self.AuthError(
+                    f"{self.name} rejected the credentials (HTTP {resp.status_code})"
+                )
+            if resp.status_code != 200:
+                logger.debug(
+                    "%s SERP HTTP %d: %s", self.name, resp.status_code,
+                    self.mask(resp.text[:200]),
+                )
+                return []
+            out = []
+            for item in self.parse_response(resp.json())[:max_results]:
+                if getattr(item, "title", "") and getattr(item, "href", ""):
+                    out.append(item)
+            return out
+        except self.AuthError:
+            raise
+        except Exception as e:
+            logger.debug("%s API error: %s", self.name, self.mask(repr(e)))
+            return []
+
+
+def _ns(title: str, href: str, body: str):
+    """SimpleNamespace(title, href, body) —— 与 metasearch 的属性访问兼容。"""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(title=title, href=href, body=body)
+
+
+class _Brightdata(KeyedApiEngine):
+    name = "brightdata"
+    env_var = "DHOLE_BRIGHTDATA_API_KEY"
+    endpoint = _BRIGHTDATA_ENDPOINT
+    AuthError = BrightDataAuthError
+
+    def build_request(self, query, max_results, timelimit):
         from urllib.parse import quote_plus
-        url = f"https://www.google.com/search?q={quote_plus(query)}"
+
         payload = {
             "zone": _BRIGHTDATA_ZONE,
-            "url": url,
+            "url": f"https://www.google.com/search?q={quote_plus(query)}",
             "format": "json",
             "data_format": "parsed_light",
             "country": _BRIGHTDATA_COUNTRY,
         }
-        resp = httpx.post(
-            _BRIGHTDATA_ENDPOINT,
-            json=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {_BRIGHTDATA_API_KEY}",
-            },
-            timeout=20.0,
+        return (
+            self.endpoint,
+            {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key()}"},
+            payload,
         )
-        if resp.status_code != 200:
-            logger.debug("BrightData SERP HTTP %d: %s", resp.status_code, resp.text[:200])
-            return []
-        data = resp.json()
-        # Bright Data wraps the SERP content in a JSON string inside "body".
-        # body = '{"organic": [...], "general": {...}}' (parsed_light format).
+
+    def parse_response(self, data):
+        # 响应体里再包一层 JSON 字符串：body = '{"organic": [...]}'
         body_str = data.get("body", "{}") if isinstance(data, dict) else "{}"
         body = json.loads(body_str) if isinstance(body_str, str) else body_str
         items = body.get("organic", body.get("organic_results", body.get("results", [])))
         if not items and isinstance(body, list):
             items = body
-        results = []
-        for item in items[:max_results]:
+        out = []
+        for item in items:
             title = item.get("title", "")
             href = item.get("url", item.get("link", item.get("href", "")))
             snippet = item.get("snippet", item.get("description", item.get("body", "")))
             if title and href:
-                # Use SimpleNamespace for attribute access compatibility with
-                # the metasearch result processing loop (getattr(r, 'href')).
-                from types import SimpleNamespace
-                results.append(SimpleNamespace(title=title, href=href, body=snippet))
-        return results
-    except Exception as e:
-        logger.debug("BrightData SERP error: %r", e)
-        return []
+                out.append(_ns(title, href, snippet))
+        return out
+
+
+class _Tavily(KeyedApiEngine):
+    name = "tavily"
+    env_var = "DHOLE_TAVILY_API_KEY"
+    AuthError = TavilyAuthError
+    endpoint = "https://api.tavily.com/"
+    # basic=1 credit；advanced=2 credits，默认不替用户花钱
+
+    def build_request(self, query, max_results, timelimit):
+        payload = {"query": query, "max_results": max_results, "search_depth": "basic"}
+        if timelimit in ("day", "week", "month", "year"):
+            payload["time_range"] = timelimit
+        return (
+            self.endpoint,
+            {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key()}"},
+            payload,
+        )
+
+    def parse_response(self, data):
+        out = []
+        for item in data.get("results", []):
+            if item.get("title") and item.get("url"):
+                out.append(_ns(item["title"], item["url"], item.get("content", "")))
+        return out
+
+
+class _Exa(KeyedApiEngine):
+    name = "exa"
+    env_var = "DHOLE_EXA_API_KEY"
+    AuthError = ExaAuthError
+    endpoint = "https://api.exa.ai/search"
+    # 实测：无 key/欠费返回 402 "Payment required"，归入鉴权类失败
+    auth_codes = (401, 402, 403)
+
+    def build_request(self, query, max_results, timelimit):
+        payload = {"query": query, "numResults": max_results}
+        if timelimit == "year":
+            from datetime import date, timedelta
+
+            payload["startPublishedDate"] = (date.today() - timedelta(days=365)).isoformat()
+        return (
+            self.endpoint,
+            {"Content-Type": "application/json", "x-api-key": self.api_key()},
+            payload,
+        )
+
+    def parse_response(self, data):
+        out = []
+        for item in data.get("results", []):
+            if item.get("title") and item.get("url"):
+                snippet = item.get("text") or " ".join(item.get("highlights") or [])
+                out.append(_ns(item["title"], item["url"], snippet))
+        return out
+
+
+class _Bocha(KeyedApiEngine):
+    name = "bocha"
+    env_var = "DHOLE_BOCHA_API_KEY"
+    AuthError = BochaAuthError
+    endpoint = "https://api.bochaai.com/v1/web-search"
+    # 国内裸网直连；索引与 Bing 同源。summary=true 才有全文摘要（更贵更慢），默认关。
+
+    _FRESHNESS = {"day": "oneDay", "week": "oneWeek", "month": "oneMonth", "year": "oneYear"}
+
+    def build_request(self, query, max_results, timelimit):
+        payload = {"query": query, "count": max_results, "summary": False}
+        if timelimit in self._FRESHNESS:
+            payload["freshness"] = self._FRESHNESS[timelimit]
+        return (
+            self.endpoint,
+            {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key()}"},
+            payload,
+        )
+
+    def parse_response(self, data):
+        pages = (data.get("data") or {}).get("webPages") or {}
+        out = []
+        for item in pages.get("value", []):
+            if item.get("name") and item.get("url"):
+                snippet = item.get("summary") or item.get("snippet", "")
+                out.append(_ns(item["name"], item["url"], snippet))
+        return out
+
+
+# keyed 引擎注册表：engines= 按名字选择；不设 key 时选中会得到可诊断的报错
+KEYED_ENGINES: dict[str, type[KeyedApiEngine]] = {
+    _Brightdata.name: _Brightdata,
+    _Tavily.name: _Tavily,
+    _Exa.name: _Exa,
+    _Bocha.name: _Bocha,
+}
 
 
 # ─── circuit breaker (per-backend block cooldown) ───────────────────────────
@@ -787,22 +1004,54 @@ def _record_block(name: str) -> None:
     _save_circuit_state()
 
 
+# 连接失败（DNS/拒连/超时）与被反爬封不同：前者往往是持续性的（引擎被墙），
+# 却不会触发上面的熔断。连续失败达阈值后冷却更久，避免每轮搜索陪跑。
+_CONN_FAIL_THRESHOLD = 3
+_CONN_FAIL_COOLDOWN = 600.0
+_CONN_FAIL_COUNTS: dict[str, int] = {}
+
+
+def _record_conn_failure(name: str) -> None:
+    _CONN_FAIL_COUNTS[name] = _CONN_FAIL_COUNTS.get(name, 0) + 1
+    if _CONN_FAIL_COUNTS[name] >= _CONN_FAIL_THRESHOLD:
+        _BACKEND_HEALTH[name] = time() + _CONN_FAIL_COOLDOWN
+        _CONN_FAIL_COUNTS.pop(name, None)
+        _save_circuit_state()
+
+
 def _record_success(name: str) -> None:
+    _CONN_FAIL_COUNTS.pop(name, None)
     if name in _BACKEND_HEALTH:
         _BACKEND_HEALTH.pop(name, None)
         _save_circuit_state()
 
 
+def _configured_default_backends() -> list[str]:
+    """DHOLE_DEFAULT_ENGINES 覆盖默认池（逗号分隔）。国内用户可收敛到直连可达的
+    引擎，被墙的三个不再每轮陪跑。未知名忽略并告警；全无效则回落上游默认。"""
+    raw = os.environ.get("DHOLE_DEFAULT_ENGINES", "")
+    if not raw.strip():
+        return list(_DEFAULT_BACKENDS)
+    out: list[str] = []
+    for name in (x.strip().lower() for x in raw.split(",")):
+        b = _DHOLE_TO_BACKEND.get(name)
+        if b and b not in out:
+            out.append(b)
+        elif not b:
+            logger.warning("DHOLE_DEFAULT_ENGINES: unknown engine %r skipped", name)
+    return out or list(_DEFAULT_BACKENDS)
+
+
 def _resolve_backends(engines: Optional[list[str]]) -> list[str]:
     """Map dhole engine names (or 'auto'/None) to ddgs backend names, dropping dups/unknowns."""
     if not engines:
-        return list(_DEFAULT_BACKENDS)
+        return _configured_default_backends()
     out: list[str] = []
     for e in engines:
         b = _DHOLE_TO_BACKEND.get(e)
         if b and b not in out:
             out.append(b)
-    return out or list(_DEFAULT_BACKENDS)
+    return out or _configured_default_backends()
 
 
 _SEARCH_TRACKING_PARAMS = {
@@ -927,12 +1176,25 @@ async def metasearch(
             logger.debug("engine %s init failed: %r", b, ex)
             status[b] = f"init_error:{type(ex).__name__}"
 
-    if not instances and not _BRIGHTDATA_API_KEY:
+    keyed_selected = [b for b in backends if b in KEYED_ENGINES]
+    keyed_ready = [b for b in keyed_selected if KEYED_ENGINES[b].api_key()]
+    for b in keyed_selected:
+        if not KEYED_ENGINES[b].api_key():
+            status[b] = f"no_key:{KEYED_ENGINES[b].env_var}"
+
+    if not instances and not keyed_ready:
+        if len(keyed_selected) == 1:
+            cls = KEYED_ENGINES[keyed_selected[0]]
+            # Only a keyed engine was asked for, so the proxy is not the suspect.
+            raise MetaSearchException(
+                f"Engine '{cls.name}' requires {cls.env_var}, which is not set."
+            )
         proxy_note = f" (proxy in use: {_search_proxy})" if _search_proxy else ""
         raise MetaSearchException(
             f"No search engines could start{proxy_note}. "
             f"Engine status: {status}. "
-            f"Check DHOLE_SEARCH_PROXY or set DHOLE_BRIGHTDATA_API_KEY."
+            f"Check DHOLE_SEARCH_PROXY, or pick keyed engines (brightdata/tavily/"
+            f"exa/bocha) via engines= and set their API key env."
         )
 
     seen: dict[str, dict[str, Any]] = {}
@@ -963,13 +1225,17 @@ async def metasearch(
 
     tasks = {asyncio.ensure_future(_run(n, e)): n for n, e in instances.items()}
 
-    # Bright Data SERP API: priority backend (runs in parallel with free engines).
-    # When configured, it almost always returns results (no rate-limiting).
-    if _BRIGHTDATA_API_KEY:
-        async def _run_brightdata():
-            res = await asyncio.to_thread(_brightdata_serp_search, query, max_results + 4)
-            return "brightdata", res
-        tasks[asyncio.ensure_future(_run_brightdata())] = "brightdata"
+    # Keyed JSON engines: run ONLY when explicitly selected (each call costs
+    # real money), and only when their key is present.
+    for b in keyed_ready:
+        eng = KEYED_ENGINES[b]()
+
+        async def _run_keyed(name=b, _eng=eng):
+            q = (query_map or {}).get(name, query)
+            res = await asyncio.to_thread(_eng.search_json, q, max_results + 4, timelimit)
+            return name, res
+
+        tasks[asyncio.ensure_future(_run_keyed())] = b
 
     pending = set(tasks)
     deadline = time() + _SEARCH_DEADLINE
@@ -996,6 +1262,7 @@ async def metasearch(
                 continue
             except BaseException as ex:  # CancelledError is BaseException in py3.11+
                 status[name] = f"error:{type(ex).__name__}"
+                _record_conn_failure(name)
                 continue
             added = 0
             touched = False  # returned a valid result that matched an existing key (dupe)
