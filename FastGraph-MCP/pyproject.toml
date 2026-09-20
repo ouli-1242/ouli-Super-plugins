@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fastgraph-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "Lightweight real-time code intelligence MCP: AST + incremental index + code graph, no embeddings, low memory & low context."
 readme = "README.md"
 requires-python = ">=3.11"
