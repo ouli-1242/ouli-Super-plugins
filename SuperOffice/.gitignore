@@ -1,0 +1,12 @@
+# Windows junk
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Session artifacts (never committed)
+.superpowers/

@@ -1,0 +1,64 @@
+id: "NB-skills/doc-intake"
+name: "doc-intake"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Turn messy external input into fixed-shape structured products with per-claim source anchors; extraction, never creation."
+when_to_use:
+  - "Recordings/transcripts -> minutes; chats/emails -> action items; notes -> draft material; long documents -> summaries"
+when_not_to_use:
+  - "Creating a document from scratch (doc-draft)"
+  - "Revising an existing draft (doc-revise)"
+required_capabilities:
+  - "Full-source reading; audio transcription tooling when input is audio"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/doc-intake (four-step process + minutes template, for mid/weak models)"
+dependencies:
+  tools: [transcription tooling (when input is audio)]
+  apis: []
+  data:
+    - "the source material"
+  skills: [doc-draft, data-report, doc-asset]
+permissions:
+  - "Read sources; write the structured product"
+data_scope: "provided material and current workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the source material"
+  optional: "target reader, length limit, minutes template"
+  missing_behavior: "target product unclear -> ask one question; never guess the shape"
+output_contract:
+  format: "product with per-claim source anchors; minutes carry required slots (会议信息/决议/行动项表/遗留问题/来源)"
+  quality: "quotes verbatim; action items all owned; gaps marked [待确认]"
+constraints:
+  - "Read the source completely, once, before extracting"
+  - "Every number in the product must be findable in the source (else delete or mark [待确认])"
+forbidden:
+  - "Filling gaps from imagination"
+  - "Dropping speaker attribution; ignoring the reader's length limit"
+acceptance_criteria:
+  - "Product verified against source item by item (names, numbers, dates, owners)"
+self_check:
+  - "Can every claim be traced to its anchor?"
+  - "Is every gap marked rather than filled?"
+failure_and_escalation:
+  critical_source_gap: "[待确认] + ask the user; never bridge by imagination"
+  shape_still_ambiguous: "deliver candidate shapes, user picks"
+stop_conditions:
+  - "Source unusable (unreadable/corrupt) and no alternative"
+cost_latency_budget:
+  max_tokens: "8000"
+  max_tool_calls: "one full read + one verify pass"
+  over_budget_action: "deliver with explicitly unfinished sections"
+examples:
+  positive: "minutes with timestamps, verbatim decisions, owner on every action item"
+  negative: "fabricating an action item to cover an inaudible passage"
+  edge: "long article -> summary at the reader's stated limit"
+evaluation:
+  metrics: [unanchored claims (target 0), unowned action items (target 0), gap resolution rate]
+observability:
+  log: "source archive path in the product's 来源 slot; products feed doc-draft/data-report/doc-asset"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-intake; minutes slots kept as output contract; anti-rationalization table folded into prohibitions."

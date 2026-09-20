@@ -1,0 +1,8 @@
+# Keep the repository's text files LF on every platform: skill frontmatter and
+# descriptions were authored LF-only, and CRLF churn would rewrite every file.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

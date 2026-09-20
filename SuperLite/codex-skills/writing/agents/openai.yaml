@@ -1,0 +1,5 @@
+interface:
+  display_name: "Writing"
+  short_description: "Write any written deliverable"
+policy:
+  allow_implicit_invocation: false

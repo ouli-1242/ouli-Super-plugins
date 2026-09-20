@@ -1,0 +1,64 @@
+id: "NB-skills/doc-revise"
+name: "doc-revise"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Make the requested change to an existing text while preserving declared invariants; verify the edit landed with evidence."
+when_to_use:
+  - "Polishing / shortening / expanding / tone change / layout repair on a text the user owns"
+when_not_to_use:
+  - "Opinions on someone else's material (doc-review)"
+  - "Creating content (doc-draft); summarizing input (doc-intake)"
+required_capabilities:
+  - "Document editing via Python route; wps-cli for WPS engine/open docs"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/doc-revise (mode table + three-step process, for mid/weak models)"
+dependencies:
+  tools: [document-skills Python route, wps-cli (WPS engine / open documents)]
+  apis: []
+  data:
+    - "docs/办公资产/ profiles (format repair reference)"
+  skills: [doc-review, verify-output, doc-asset, wps-cli]
+permissions:
+  - "Edit the target document (working copy or via wps-cli)"
+data_scope: "the target document and workspace"
+risk_level: "L1"
+confirmation_required: []
+input_contract:
+  required: "the existing text and the requested change"
+  optional: "target length, target register, format profile"
+  missing_behavior: "mode ambiguous -> ask, or infer and state mode + invariants first"
+output_contract:
+  format: "revised text with invariants byte-identical; 缩短 delivers the information-point checklist; 格式修复 delivers rendered evidence"
+  quality: "every change traceable to the request"
+constraints:
+  - "Declare mode + invariants before editing (润色/缩短/扩写/换风格/格式修复 table)"
+  - "Route by change: closed-file wording -> direct; document-scale layout -> script or wps-cli; WPS-open -> wps-cli"
+forbidden:
+  - "Editing numbers/conclusions/commitments/names not covered by the request"
+  - "Hand-fixing layout at document scale; claiming format fixed without rendered evidence"
+acceptance_criteria:
+  - "Requested change present; invariants verified; evidence delivered"
+self_check:
+  - "Is every change traceable to the request?"
+  - "Did any number/name/conclusion shift?"
+failure_and_escalation:
+  suspect_original_error: "flag to the user; never silently correct"
+  tooling_insufficient: "say so; never claim success on a hand-fix"
+stop_conditions:
+  - "Invariant and request genuinely conflict -> user decides"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "one edit pass + one read-back"
+  over_budget_action: "deliver the flagged problem list instead of an unverified revision"
+examples:
+  positive: "smoother sentences, five numbers byte-identical, conclusion untouched"
+  negative: "shortening that dropped one of eleven information points"
+  edge: "40-page format repair -> wps-cli batch + print-preview screenshot"
+evaluation:
+  metrics: [un-requested changes (target 0), invariant violations (target 0), layout claims with rendered evidence (target 100%)]
+observability:
+  log: "flagged-not-edited issues listed for the user; style preferences -> doc-asset"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-revise; mode/invariant table kept as the constraint core."

@@ -1,0 +1,65 @@
+id: "NB-skills/doc-review"
+name: "doc-review"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Assess someone else's material on four axes and produce precisely located findings, never edits."
+when_to_use:
+  - "Reviewing a contract/proposal/outgoing draft/report; annotating with comments"
+when_not_to_use:
+  - "Editing on the user's behalf (doc-revise)"
+  - "Verifying your own deliverable (verify-output)"
+required_capabilities:
+  - "Full-document reading; native-comment writing via Python route or wps-cli"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/doc-review (four-step process + findings template, for mid/weak models)"
+dependencies:
+  tools: [document-skills Python route, wps-cli (for native comments)]
+  apis: []
+  data:
+    - "docs/办公资产/ format profiles"
+  skills: [doc-revise, doc-asset]
+permissions:
+  - "Read the material; write findings or native comments (never inline edits)"
+data_scope: "the material under review"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the material to review"
+  optional: "the review contract (legal exposure / approval / unit format)"
+  missing_behavior: "unstated -> default to all four axes, severity-ordered, and say so"
+output_contract:
+  format: "severity-ordered findings, each with 位置/原文/问题/依据; delivery per ask (report or native comments)"
+  quality: "every finding locatable and grounded; no praise padding"
+constraints:
+  - "Read the entire artifact once before flagging anything"
+  - "Four axes: 事实准确 / 逻辑结构 / 格式规范 / 风险措辞"
+  - "Native comments anchored to quoted text; the author accepts or rejects"
+forbidden:
+  - "Silently fixing found problems (reviewers locate, owners correct)"
+  - "Skipping hard-to-understand sections; inline-editing text"
+acceptance_criteria:
+  - "Full read done; four-element findings; delivery matches the ask"
+self_check:
+  - "Can every finding be located and verified via 位置+原文?"
+  - "Did I edit anything instead of flagging it?"
+failure_and_escalation:
+  unverifiable_claim: "the finding says \"无法核实，需对账\""
+  needs_specialist: "state it in the finding's 依据 (legal/finance)"
+stop_conditions:
+  - "Material unreadable or truncated with no alternative source"
+cost_latency_budget:
+  max_tokens: "8000"
+  max_tool_calls: "one full read + axis pass"
+  over_budget_action: "deliver partial findings with unreviewed sections named"
+examples:
+  positive: "contract finding with position, quote, risk, owner-left rewording"
+  negative: "整体感觉还行，没大问题"
+  edge: "unreadable clause -> \"条款含义不明，建议请法务确认\" as the finding"
+evaluation:
+  metrics: [false-positive rate, missed issues found by later readers, inline-edit occurrences (target 0)]
+observability:
+  log: "the findings list is the record; accepted findings -> doc-revise work orders"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-review; four-axis + four-element findings kept as the contract."

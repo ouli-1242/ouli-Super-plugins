@@ -1,0 +1,70 @@
+id: "NB-skills/executing-plans"
+name: "executing-plans"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Execute an approved plan task by task with fresh verification per step and disk-based progress recovery; no improvisation."
+when_to_use:
+  - "A written implementation plan exists and the user wants it executed or resumed"
+when_not_to_use:
+  - "Writing a plan (writing-plans)"
+  - "Direct instructions with no plan document (tdd)"
+required_capabilities:
+  - "Shell/test execution; git; sub-agent tool (optional, for sub-agent mode)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/executing-plans (three-step walkthrough with log template, for mid/weak models)"
+dependencies:
+  tools: [git, project test runner]
+  apis: []
+  data:
+    - "the plan document (docs/计划/)"
+    - "docs/文档导航.md"
+  skills: [tdd, code-review, verification-before-completion, finishing-a-development-branch, doc-index]
+permissions:
+  - "Write source per plan steps; local git commits; no push from this skill"
+data_scope: "current workspace repository"
+risk_level: "L1"
+confirmation_required:
+  - "Implementing on main/master"
+  - "Executing a draft-status plan"
+  - "Reopening a completed plan"
+input_contract:
+  required: "plan file path (default docs/计划/)"
+  optional: "pointer to a specific task/step"
+  missing_behavior: "no plan on disk -> skill does not apply; route to tdd or writing-plans"
+output_contract:
+  format: "all boxes checked; **Status:** completed; one work log (今日做了什么/证据/偏离声明/诚实边界) registered in 文档导航"
+  quality: "every checked box backed by fresh command output read this session"
+constraints:
+  - "Status line gates execution (draft -> approval; completed -> confirm reopen)"
+  - "Use the plan's Interfaces block names exactly; resume from disk (boxes + git log), never memory"
+forbidden:
+  - "Skipping or inventing verification steps"
+  - "Force through blockers; batch-checking boxes"
+acceptance_criteria:
+  - "Plan completed with evidence; log written and registered"
+self_check:
+  - "Does every check mark correspond to a command run this session?"
+  - "Does the log's 诚实边界 name what was not verified?"
+failure_and_escalation:
+  blocker: "stop and ask; a guessed step poisons every step after it"
+  critical_plan_gap: "stop and surface; fix is a revised plan"
+  repeated_verification_failure: "stop and report with evidence"
+  wrong_fundamental_approach: "back to the user for a new plan"
+stop_conditions:
+  - "Any blocker the user has not resolved; user unavailable"
+cost_latency_budget:
+  max_tokens: "16000"
+  max_tool_calls: "per plan steps only; no extra sweeps mid-task"
+  over_budget_action: "finish current task, report state, ask"
+examples:
+  positive: "box checked only after reading \"npm test: 5 passing\" output"
+  negative: "reconstructing progress from memory after an interruption"
+  edge: "Interfaces reference no longer matches code -> stop and raise, never silently adapt"
+evaluation:
+  metrics: [deviations per plan, blocker escalations, unevidenced check marks (target 0)]
+observability:
+  log: "the required work log is the observability record; deviations feed writing-plans"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/executing-plans; step narrative dropped; status gating, disk resume, and log slots kept as contract."

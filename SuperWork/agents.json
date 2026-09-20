@@ -1,0 +1,102 @@
+{
+  "_comment": "Per-agent install targets for THIS pack. Each entry names the source folder inside this pack: 'agents-skills' = the one long-text folder every name+description harness shares, 'codex-skills' = the same text plus the Codex-only agents/openai.yaml, 'zcode-skills' = derived <=250-char descriptions for ZCode's metadata window. Several harnesses also scan the shared ~/.agents/skills root, so one install can reach many. Paths/fields verified against vendor docs (2026-09); unverified entries are skipped unless -VerifyPaths is passed.",
+  "version": 3,
+  "agents": {
+    "dsh": {
+      "path": "%USERPROFILE%\\.dsh\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "name must match ^[a-z0-9]+(?:-[a-z0-9]+)*$; catalog description truncated at 500 chars; invalid frontmatter drops the skill silently",
+      "source": "@deepseek-ai/dsh-skill-filesystem README",
+      "verify": "skill_manager_list in a session"
+    },
+    "claude": {
+      "path": "%USERPROFILE%\\.claude\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "frontmatter allows ONLY name, description, allowed-tools, compatibility, license, metadata - any other key errors; description+when_to_use truncated at 1536 chars",
+      "source": "code.claude.com/docs/en/skills",
+      "verify": "claude -> /skills"
+    },
+    "codex": {
+      "path": "%USERPROFILE%\\.codex\\skills",
+      "sourceFolder": "codex-skills",
+      "verified": true,
+      "notes": "SKILL.md needs name + description; agents/openai.yaml (interface + optional policy.allow_implicit_invocation) is the Codex-only extra file",
+      "source": "openai/codex skill-creator references/openai_yaml.md",
+      "verify": "codex -> the skills list; invoked as $skill-name"
+    },
+    "zcode": {
+      "path": "%USERPROFILE%\\.zcode\\skills",
+      "sourceFolder": "zcode-skills",
+      "verified": true,
+      "notes": "description >1024 DROPS the skill; per-turn metadata injects only the first 250 chars of each description, and the metadata set shares one budget (past it only names are injected)",
+      "source": "https://zcode.z.ai/cn/docs/skill",
+      "verify": "ZCode -> Settings -> Skills -> Refresh; invoke with $skill-name"
+    },
+    "qoder": {
+      "path": "%USERPROFILE%\\.qoder-cn\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "name: lowercase/digits/hyphens, <=64 chars; description <=1024; project-level .qoder/skills overrides user level",
+      "source": "https://help.aliyun.com/zh/lingma/skills",
+      "verify": "/skills inside Qoder CN CLI"
+    },
+    "cursor": {
+      "path": "%USERPROFILE%\\.cursor\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "also discovers .cursor/skills and .agents/skills in nested project subdirectories, scoped to that subtree",
+      "source": "https://cursor.com/docs/context/skills",
+      "verify": "Cursor settings -> Skills; a skill must sit at <root>/<name>/SKILL.md"
+    },
+    "opencode": {
+      "path": "%USERPROFILE%\\.config\\opencode\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "recognizes name, description, license, compatibility, metadata only; description 1-1024 chars; name <=64, no leading/trailing hyphen, no '--'; also reads ~/.claude/skills and ~/.agents/skills",
+      "source": "https://opencode.ai/docs/skills/",
+      "verify": "opencode skill list"
+    },
+    "codebuddy": {
+      "path": "%USERPROFILE%\\.codebuddy\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "name/description optional (directory name is the fallback); supports allowed-tools, disable-model-invocation, context, model but none are required",
+      "source": "https://www.codebuddy.ai/docs/zh/cli/skills",
+      "verify": "CodeBuddy skills panel"
+    },
+    "gemini": {
+      "path": "%USERPROFILE%\\.gemini\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "discovery injects name + description into the system prompt; activation goes through the activate_skill tool with a user consent prompt",
+      "source": "https://geminicli.com/docs/cli/skills/",
+      "verify": "/skills list inside Gemini CLI"
+    },
+    "grok": {
+      "path": "%USERPROFILE%\\.grok\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "discovers ./.grok/skills (walked up), ~/.grok/skills, ~/.agents/skills, plus Claude Code marketplaces/plugins; unknown frontmatter keys ignored; supports when-to-use and disable-model-invocation",
+      "source": "https://docs.x.ai/build/features/skills-plugins-marketplaces",
+      "verify": "grok -> skills listing / slash command"
+    },
+    "kimi": {
+      "path": "%USERPROFILE%\\.kimi-code\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "user tier = $KIMI_CODE_HOME/skills (default ~/.kimi-code/skills) and ~/.agents/skills; project tier = .kimi-code/skills and .agents/skills; name/description optional; invoked as /skill:<name>",
+      "source": "https://www.kimi.com/code/docs/kimi-code-cli/customization/skills.html",
+      "verify": "/skills inside Kimi Code CLI"
+    },
+    "agents": {
+      "path": "%USERPROFILE%\\.agents\\skills",
+      "sourceFolder": "agents-skills",
+      "verified": true,
+      "notes": "shared cross-tool root: scanned by DSH (rank 500), Cursor, opencode, Kimi, Grok and others - install once here to reach them all",
+      "source": "vendor docs of DSH / Cursor / opencode / Kimi / Grok",
+      "verify": "same as dsh"
+    }
+  }
+}

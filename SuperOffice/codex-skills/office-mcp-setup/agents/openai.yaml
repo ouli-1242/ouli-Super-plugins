@@ -1,0 +1,5 @@
+interface:
+  display_name: "Office Mcp Setup"
+  short_description: "Configure MCP servers for office work"
+policy:
+  allow_implicit_invocation: false

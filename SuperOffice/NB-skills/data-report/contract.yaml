@@ -1,0 +1,66 @@
+id: "NB-skills/data-report"
+name: "data-report"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Produce spreadsheet aggregates/analyses where every figure is traceable and every total is cross-checked before reporting."
+when_to_use:
+  - "Merging sheets/files, cross-checking totals, pivots, statistics, charts from tabular data"
+when_not_to_use:
+  - "Filling forms (form-fill); converting formats (file-ops); reading one small table into context; recalculating stale formulas (wps-cli)"
+required_capabilities:
+  - "Python (openpyxl/pandas); wps-cli when formulas must compute"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/data-report (five-step process, for mid/weak models)"
+dependencies:
+  tools: [Python openpyxl/pandas, wps-cli (formula computation)]
+  apis: []
+  data:
+    - "the user's data files (worked on copies only)"
+  skills: [file-ops, wps-cli, verify-output, doc-asset]
+permissions:
+  - "Read data files; write working copies and report outputs"
+data_scope: "provided data files and workspace"
+risk_level: "L1"
+confirmation_required:
+  - "口径 confirmation when derived rather than given"
+input_contract:
+  required: "data files/sheets and the question to answer"
+  optional: "known 口径, output format"
+  missing_behavior: "derive the 口径 and confirm in one message BEFORE computing"
+output_contract:
+  format: "口径声明 -> results table -> findings -> 来源清单 (file/sheet/range per figure); charts match table numbers"
+  quality: "every total passed a second-derivation check; compute script ships as the traceability artifact"
+constraints:
+  - "All arithmetic through the tool, never mental"
+  - "Cross-check mandatory: total check + 2-3 row spot check + sanity check (cleaning counts stated)"
+  - "Never work in the user's only copy"
+forbidden:
+  - "Adjusting a number to make totals agree (the disagreement is the finding)"
+  - "Reporting without 来源清单 or 口径声明"
+acceptance_criteria:
+  - "Every figure traceable in one hop via 来源清单; totals cross-checked"
+self_check:
+  - "Can I trace the largest number to its source cells?"
+  - "Did any check fail silently?"
+failure_and_escalation:
+  cross_check_fails: "stop and report the discrepancy"
+  pdf_scan_inputs: "file-ops first; OCR carries a manual-confirmation list"
+  stale_formula_values: "wps-cli recompute; uncomputed cells look real but are not"
+stop_conditions:
+  - "Data inaccessible or the 口径 cannot be established with the user"
+cost_latency_budget:
+  max_tokens: "8000"
+  max_tool_calls: "one compute pass + one cross-check pass"
+  over_budget_action: "deliver verified core tables; list unverified parts explicitly"
+examples:
+  positive: "totals re-derived by a different grouping; 来源清单 maps every figure to sheet+range"
+  negative: "\"大概对得上就行了\" - a total accepted without the second derivation"
+  edge: "cleaning drops 47 rows -> the report says 47, what they were, and why"
+evaluation:
+  metrics: [cross-check failures caught pre-delivery, unmapped figures (target 0), user-caught number errors (target 0)]
+observability:
+  log: "口径声明 + 来源清单 in the report; discrepancies reported, never smoothed"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/data-report; cross-check kept mandatory; anti-rationalization table folded into prohibitions."

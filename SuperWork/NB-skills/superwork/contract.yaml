@@ -1,0 +1,67 @@
+id: "NB-skills/superwork"
+name: "superwork"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Route a coding task to the right domain skill and bind five unconditional disciplines; carries no operational procedure."
+when_to_use:
+  - "At the start of any coding session or task"
+  - "When several skills seem to apply and the overlap needs arbitration"
+when_not_to_use:
+  - "The task clearly matches one domain skill with no ambiguity"
+  - "Pure Q&A, trivial one-line edits, user opted out of skills"
+required_capabilities:
+  - "Harness-injected skill discovery (name + description)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/superwork (full route table + exemption detail, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/文档导航.md (when present)"
+  skills: [brainstorming, writing-plans, executing-plans, tdd, diagnosing-bugs, verification-before-completion, code-review, receiving-code-review, finishing-a-development-branch, resolving-merge-conflicts, grilling, domain-modeling, research, writing-skills, handoff, doc-index]
+permissions:
+  - "Read-only over session context; this skill itself performs no writes"
+data_scope: "current session and workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "current task description"
+  optional: "existing artifact state (spec / plan / review / handoff paths)"
+  missing_behavior: "ask one clarifying question, then route"
+output_contract:
+  format: "one routing statement (skill name + reason) followed by invoking the skill"
+  quality: "one task stage maps to one skill; overlaps resolved by precedence and stated"
+constraints:
+  - "One task stage maps to one skill; earlier lifecycle stage wins on overlap"
+  - "Disciplines are session-bound; they apply even when no skill is loaded"
+forbidden:
+  - "Routing from memory without consulting the index"
+  - "Using \"the task is simple\" to skip a discipline (simplicity scales ceremony, not disciplines)"
+acceptance_criteria:
+  - "Chosen skill matches the task lifecycle stage; no earlier stage skipped"
+  - "Five unconditional disciplines in effect for the session"
+self_check:
+  - "Did I state the route and the reason?"
+  - "Is any earlier lifecycle stage being skipped?"
+failure_and_escalation:
+  ambiguous_route: "ask one clarifying question; still unclear, let the user pick the stage"
+  missing_skill: "say so and handle inline under the disciplines; never pretend a skill ran"
+  conflicts_with_user_instruction: "user instruction wins; record a deviation statement"
+stop_conditions:
+  - "User explicitly opts out of skills (disciplines still apply; warn once)"
+cost_latency_budget:
+  max_tokens: "2000"
+  max_tool_calls: "1"
+  over_budget_action: "route immediately, stop elaborating"
+examples:
+  positive: "「把计划做了」 with a plan document on disk -> executing-plans"
+  negative: "picking tdd without checking for an approved plan on disk"
+  edge: "a \"bug report\" that is really a feature request -> brainstorming, not diagnosing-bugs"
+evaluation:
+  metrics: [routing hit rate, clarifications per route, mis-route rework count]
+observability:
+  log: "routing statements stay in chat; major mis-routes go to docs/日志/"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/superwork; process route table reduced to an L0 domain index; composition/conflict precedence added."

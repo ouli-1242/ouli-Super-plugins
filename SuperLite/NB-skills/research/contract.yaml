@@ -1,0 +1,66 @@
+id: "NB-skills/research"
+name: "research"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Answer research questions from primary sources with per-claim citations, delegated to a background agent; file for projects, chat for one-offs."
+when_to_use:
+  - "Topics needing official docs, API facts, standards, best practices, 攻略/政策/价格对比"
+when_not_to_use:
+  - "Questions answerable from the codebase or already known"
+  - "Producing the deliverable itself (writing); project-internal empirical data (docs/实验/)"
+required_capabilities:
+  - "Background/sub-agent tool (inline fallback allowed)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/research (three-job delegation note, for mid/weak models)"
+dependencies:
+  tools: [background agent tool]
+  apis: []
+  data:
+    - "docs/技术依据.md, docs/设计/, docs/文档导航.md (project work)"
+  skills: [doc-index, writing]
+permissions:
+  - "Web access for the background agent; write to docs/ destinations"
+data_scope: "public sources + current workspace docs/"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the research question, scoped to investigate"
+  optional: "depth hints, candidate sources"
+  missing_behavior: "too broad -> narrow with the user in one exchange before dispatching"
+output_contract:
+  format: "findings with per-claim citations; project -> file (技术依据 section or 设计 doc, registered); daily one-off -> chat with citations"
+  quality: "primary sources only; no wholesale copying"
+constraints:
+  - "Background agent does exactly three things: investigate primary sources, write cited findings, deliver to destination"
+  - "Daily one-offs skip the file unless the user asks to save"
+forbidden:
+  - "Presenting uncited findings"
+  - "Citing a secondary write-up as if it were the source"
+  - "Producing the final deliverable (writing owns that)"
+acceptance_criteria:
+  - "Every claim cited; destination matches the question's weight (file vs chat)"
+self_check:
+  - "Does every claim trace to a primary source?"
+  - "Was the file/stream choice right?"
+failure_and_escalation:
+  no_background_tool: "investigate inline, stating the context cost"
+  contradicting_sources: "report both with citations; never silently pick"
+  answerable_from_codebase: "stop and answer directly"
+stop_conditions:
+  - "Sources inaccessible and no alternative path"
+cost_latency_budget:
+  max_tokens: "6000"
+  max_tool_calls: "one background dispatch per question (parallel for independent questions)"
+  over_budget_action: "return best-cited partial findings plus the open tail"
+examples:
+  positive: "pagination question -> official docs -> cited chat answer (daily one-off)"
+  negative: "LLM-generated summary without source links presented as the finding"
+  edge: "casual ask inside a project with a docs spine -> file and register anyway"
+evaluation:
+  metrics: [uncited claims (target 0), secondary-source citations, files created for unasked one-offs (target 0)]
+observability:
+  log: "citations in the findings; registration in 文档导航 for project work"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/research; daily one-off chat exception kept."

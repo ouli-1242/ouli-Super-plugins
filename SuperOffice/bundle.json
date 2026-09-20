@@ -1,0 +1,30 @@
+{
+  "name": "SuperOffice",
+  "description": "Office deliverable pack: router + verb skills (intake/draft/revise/review/data/verify) + environment enablers. Generates agents-skills/ (one text for every SKILL.md harness) and codex-skills/ (+ agents/openai.yaml).",
+  "skills": [
+    "superoffice",
+    "doc-intake",
+    "doc-draft",
+    "doc-revise",
+    "doc-review",
+    "data-report",
+    "file-ops",
+    "form-fill",
+    "verify-output",
+    "doc-asset"
+  ],
+  "optional": [
+    "office-mcp-setup",
+    "wps-cli"
+  ],
+  "codexExplicitOnly": [
+    "office-mcp-setup",
+    "wps-cli",
+    "doc-asset"
+  ],
+  "codexShortDescriptions": {
+    "office-mcp-setup": "Configure MCP servers for office work",
+    "wps-cli": "Drive the real WPS engine from the CLI",
+    "doc-asset": "Remember document templates and conventions"
+  }
+}

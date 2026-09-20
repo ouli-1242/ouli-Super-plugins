@@ -1,0 +1,5 @@
+interface:
+  display_name: "WPS CLI"
+  short_description: "Drive the real WPS engine from the CLI"
+policy:
+  allow_implicit_invocation: false

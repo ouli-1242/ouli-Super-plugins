@@ -1,0 +1,36 @@
+{
+  "name": "SuperWork",
+  "description": "Coding lifecycle discipline pack: router + 16 stage skills (idea to integration). Generates agents-skills/ (one text for every SKILL.md harness) and codex-skills/ (+ agents/openai.yaml).",
+  "skills": [
+    "superwork",
+    "brainstorming",
+    "writing-plans",
+    "executing-plans",
+    "tdd",
+    "diagnosing-bugs",
+    "verification-before-completion",
+    "code-review",
+    "receiving-code-review",
+    "finishing-a-development-branch",
+    "resolving-merge-conflicts",
+    "grilling",
+    "domain-modeling",
+    "research",
+    "writing-skills",
+    "handoff",
+    "doc-index"
+  ],
+  "optional": [],
+  "codexExplicitOnly": [
+    "handoff",
+    "writing-skills",
+    "finishing-a-development-branch",
+    "resolving-merge-conflicts"
+  ],
+  "codexShortDescriptions": {
+    "handoff": "Compact a conversation into a handoff",
+    "writing-skills": "Create and maintain agent skills",
+    "finishing-a-development-branch": "Decide how to integrate finished work",
+    "resolving-merge-conflicts": "Resolve git merge or rebase conflicts"
+  }
+}

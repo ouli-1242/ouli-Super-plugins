@@ -1,0 +1,67 @@
+id: "NB-skills/doc-asset"
+name: "doc-asset"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Persist organization/personal document conventions as user-confirmed assets extracted from real artifacts; profiles get smarter with use."
+when_to_use:
+  - "\"记住我们单位的模板\" / \"以后都按这个格式\" / terminology / stock-phrase library / sample registration"
+when_not_to_use:
+  - "One-off drafting (doc-draft consults assets)"
+  - "Summarizing a document for reading (doc-intake)"
+required_capabilities:
+  - "File-format inspection tooling (to measure parameters, never recall them)"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/doc-asset (asset-type table + four-dimension extraction, for mid/weak models)"
+dependencies:
+  tools: [file inspection tooling]
+  apis: []
+  data:
+    - "docs/办公资产/ (索引.md, profiles/, 术语表.md, 措辞库.md)"
+  skills: [doc-draft, doc-revise]
+permissions:
+  - "Write within docs/办公资产/ only"
+data_scope: "current workspace; assets never leave the workspace (privacy rule)"
+risk_level: "L1"
+confirmation_required:
+  - "Recording any asset (user must confirm the extraction matches)"
+input_contract:
+  required: "1-3 real artifacts the user confirms are representative"
+  optional: "terminology lists, forbidden phrases"
+  missing_behavior: "no representative artifact -> ask for one"
+output_contract:
+  format: "profile with required slots (适用场景/结构骨架/格式参数表/称谓与落款/用语特征/样例路径), on disk AND in 索引.md"
+  quality: "parameters measured from files; applicability boundary stated"
+constraints:
+  - "Extraction, not invention - each dimension extracted separately"
+  - "Assets are default, not law; user instruction wins; stale profiles updated in the same turn"
+  - "Privacy: internal names/titles stay in the workspace; redact excerpts shown elsewhere"
+forbidden:
+  - "Recording an asset without user confirmation"
+  - "Guessing measurable format parameters from memory"
+  - "Letting assets leave the workspace"
+acceptance_criteria:
+  - "Asset on disk + indexed + user-confirmed + measured + bounded"
+self_check:
+  - "Was every format parameter measured from the file?"
+  - "Did the user confirm before recording?"
+failure_and_escalation:
+  user_rejects_profile: "discard the extraction; ask what is wrong"
+  profile_contradicted: "update in the same turn"
+stop_conditions:
+  - "No representative artifact available"
+cost_latency_budget:
+  max_tokens: "5000"
+  max_tool_calls: "one extraction pass per artifact + one confirmation round"
+  over_budget_action: "extract structure + terminology first, format parameters next"
+examples:
+  positive: "红头文件 profile, fonts measured, user-confirmed, indexed, consumed by doc-draft"
+  negative: "profile written from memory of \"what the unit looks like\""
+  edge: "\"现在不用这个抬头了\" -> profile updated same turn, index date bumped"
+evaluation:
+  metrics: [drafts deviating from confirmed profiles (target 0), unconfirmed assets on disk (target 0), stale-profile corrections]
+observability:
+  log: "索引.md is the registry; updates dated per asset"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-asset; confirmation-before-record and measure-dont-recall kept as hard constraints."

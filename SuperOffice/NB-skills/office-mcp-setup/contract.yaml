@@ -1,0 +1,68 @@
+id: "NB-skills/office-mcp-setup"
+name: "office-mcp-setup"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Diagnose whether office work needs an MCP at all, configure from the vetted catalog, verify connections, register the setup."
+when_to_use:
+  - "User asks to configure/install MCP or CLI integrations for office work; first-time machine setup"
+when_not_to_use:
+  - "Using an already-configured tool (verb skills, wps-cli)"
+  - "Software development work (SuperWork pack)"
+required_capabilities:
+  - "Agent MCP config format knowledge; prerequisite installation"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperOffice/office-mcp-setup (six-step process + catalog walkthrough, for mid/weak models)"
+dependencies:
+  tools: [wps-cli, markitdown-mcp, OfficeMCP (per catalog)]
+  apis: []
+  data:
+    - "references/mcp-catalog.md (vetted catalog with verify commands)"
+    - "docs/环境清单.md (registration)"
+  skills: [wps-cli]
+permissions:
+  - "Write agent MCP config files and docs/环境清单.md; credentials only into config/env files"
+data_scope: "local machine configuration; keys never into conversation"
+risk_level: "L2"
+confirmation_required:
+  - "External-service MCPs (IM channels: pending category - explicit user ask required)"
+input_contract:
+  required: "what the user actually wants to do"
+  optional: "OS/Office versions, target agent, existing MCP entries"
+  missing_behavior: "ask what task the tool should enable BEFORE configuring"
+output_contract:
+  format: "configured entry in the agent's config format + verified connection (tool listing + one real operation) + 环境清单 row (credential paths only, never values)"
+  quality: "entries map 1:1 to the three qualifying cases; no duplicates"
+constraints:
+  - "Three qualifying cases only: control a running office app / batch-parse old files / external service (pending)"
+  - "Inventory before configuring: OS, Office suite, target agent format, existing entries"
+  - "A configured MCP is not a working MCP - tool listing + one real minimal operation required"
+forbidden:
+  - "Configuring on a hunch (\"以后肯定用得上\")"
+  - "Reporting success on an unverified entry"
+  - "Echoing credentials into conversation"
+acceptance_criteria:
+  - "Every entry verified by a real operation; setup registered and reproducible"
+self_check:
+  - "Does each entry trace to one of the three cases?"
+  - "Did I run one real operation through it?"
+failure_and_escalation:
+  verification_fails: "check server log, fix, re-verify; else remove/disable and say so"
+  prerequisite_missing: "install first (wps-cli itself, Python/pywin32)"
+stop_conditions:
+  - "Diagnosis says no MCP needed -> deliver that statement and stop"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "one diagnosis + one config + one verification per entry"
+  over_budget_action: "configure the highest-value entry first"
+examples:
+  positive: "live formula recalculation need -> wps-cli -> registered -> scratch workbook recalculated -> logged"
+  negative: "\"先把飞书 MCP 配上\" without an explicit ask (pending category)"
+  edge: "one-file PDF question -> no MCP; read it directly"
+evaluation:
+  metrics: [entries without diagnosed need (target 0), unverified success claims (target 0), duplicate entries]
+observability:
+  log: "docs/环境清单.md is the registry (date/machine/agent/entries/credential paths)"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/office-mcp-setup; three-case diagnosis kept as the gating constraint."

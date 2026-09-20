@@ -1,0 +1,5 @@
+interface:
+  display_name: "Doc Asset"
+  short_description: "Remember document templates and conventions"
+policy:
+  allow_implicit_invocation: false

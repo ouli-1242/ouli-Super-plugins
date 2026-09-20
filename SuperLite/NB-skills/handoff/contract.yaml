@@ -1,0 +1,64 @@
+id: "NB-skills/handoff"
+name: "handoff"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Keep sessions losslessly resumable via a continuously maintained handoff doc with five required slots, on real triggers only."
+when_to_use:
+  - "User asks for handoff/compression/new session"
+  - "Harness compaction notice appears; or a new session finds an existing handoff doc"
+when_not_to_use:
+  - "Ordinary task endings (finish and claim completion instead)"
+required_capabilities:
+  - "File writes in the workspace; no self-context measurement exists"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/handoff (slot checklist walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/交接/, docs/文档导航.md, docs/运行.md"
+  skills: [doc-index]
+permissions:
+  - "Write within docs/交接/ and registration rows"
+data_scope: "current workspace; redact secrets and PII"
+risk_level: "L1"
+confirmation_required: []
+input_contract:
+  required: "a real trigger (user ask / compaction notice / new session finds doc)"
+  optional: "description of the next session's focus"
+  missing_behavior: "ask one question - what will the next session be used for?"
+output_contract:
+  format: "docs/交接/YYYY-MM-DD-交接与剩余任务.md with five slots (立即接续命令/今日交付/剩余任务/诚实边界与偏离声明/suggested skills), registered in 文档导航"
+  quality: "current at all times; resumable without asking the user"
+constraints:
+  - "Maintain continuously after each deliverable unit; compaction timing is unpredictable"
+  - "Reference other artifacts by path; never duplicate them"
+forbidden:
+  - "Percentage-based self-triggers (agent cannot see its context usage)"
+  - "Pretending compaction happened; unredacted sensitive values"
+acceptance_criteria:
+  - "Doc exists, current, five slots, registered, resumable"
+self_check:
+  - "Could I resume from this doc alone?"
+  - "Is every sensitive value redacted?"
+failure_and_escalation:
+  mid_task_request: "record exact in-progress state including the half-done step"
+  compaction_without_doc: "write immediately from what is reconstructible; state gaps in 诚实边界"
+stop_conditions:
+  - "User cancels the handoff request"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "doc write + registration row"
+  over_budget_action: "write 立即接续命令 + 剩余任务 + 诚实边界 first"
+examples:
+  positive: "今日交付 gains the SHA after each green run; auto-compact loses nothing"
+  negative: "\"context feels long\" as a self-trigger"
+  edge: "compaction notice -> write immediately; lost test output goes to 诚实边界"
+evaluation:
+  metrics: [next-session questions only the user could answer (target 0), compactions with stale doc, leaks (target 0)]
+observability:
+  log: "the handoff doc is the record; staleness feeds the maintenance habit"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/handoff; slot 4 merges honest boundary with deviation statement."

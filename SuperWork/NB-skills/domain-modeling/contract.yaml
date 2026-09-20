@@ -1,0 +1,67 @@
+id: "NB-skills/domain-modeling"
+name: "domain-modeling"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Actively build the project's domain model - challenge term drift, sharpen language, capture qualifying decisions in glossary and ADR formats inline."
+when_to_use:
+  - "Pinning down terminology/ubiquitous language; recording an architectural decision; grilling With-Docs Mode"
+when_not_to_use:
+  - "General design discussion"
+  - "Merely reading 技术依据.md for vocabulary (a habit, not this skill)"
+required_capabilities:
+  - "Codebase cross-reading; no special tools"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/domain-modeling (session-technique walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/技术依据.md (glossary), docs/决策记录.md (D-NNN)"
+    - "ADR-FORMAT.md / CONTEXT-FORMAT.md in this skill"
+  skills: [doc-index, grilling]
+permissions:
+  - "Write docs/技术依据.md and docs/决策记录.md only"
+data_scope: "current workspace docs/"
+risk_level: "L1"
+confirmation_required:
+  - "User declines a qualifying decision record (note refusal, do not write)"
+input_contract:
+  required: "the term or decision under discussion"
+  optional: "existing glossary/decisions; relevant code"
+  missing_behavior: "create files lazily on first resolved term/decision; register in 文档导航"
+output_contract:
+  format: "glossary entries (pure language) + D-NNN six-part decisions, in the canonical formats"
+  quality: "glossary has zero implementation detail; decisions meet all three conditions"
+constraints:
+  - "Update the glossary inline as terms resolve; never batch"
+  - "Decision bar: hard to reverse + surprising without context + real trade-off (all three)"
+  - "Multi-context repos follow the 文档导航 map or context-tag decision titles"
+forbidden:
+  - "Glossary as spec/scratch-pad/implementation dump"
+  - "Recording decisions failing the bar"
+acceptance_criteria:
+  - "Glossary and decisions current, canonical, registered"
+self_check:
+  - "Does any glossary entry contain implementation detail?"
+  - "Does any recorded decision fail one of the three conditions?"
+failure_and_escalation:
+  term_conflict_unresolved: "record both readings as an open question"
+  user_declines_record: "note refusal in chat; do not write"
+stop_conditions:
+  - "Session ends with open terms -> listed, not silently dropped"
+cost_latency_budget:
+  max_tokens: "3000"
+  max_tool_calls: "inline captures only"
+  over_budget_action: "one-line capture now, refine later"
+examples:
+  positive: "contradiction between speech and code surfaced; glossary updated the same turn"
+  negative: "glossary entry containing aggregate/state-machine implementation detail"
+  edge: "reversible naming choice with no trade-off -> not a D-NNN"
+evaluation:
+  metrics: [glossary drift across sessions, decisions failing the bar (target 0), inline vs batched capture]
+observability:
+  log: "glossary/决策记录 are the record; 文档导航 registration is the completeness signal"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/domain-modeling; session techniques collapsed into constraints; three-condition decision bar kept verbatim."

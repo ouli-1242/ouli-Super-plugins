@@ -1,0 +1,71 @@
+id: "NB-skills/brainstorming"
+name: "brainstorming"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Turn an underspecified idea into an approved design; guarantee no implementation before explicit user approval."
+when_to_use:
+  - "Vague feature idea, new project, or design question with unsettled requirements"
+when_not_to_use:
+  - "Bug reports (diagnosing-bugs)"
+  - "User already specified what and how (tdd)"
+  - "Stress-testing a settled plan (grilling)"
+required_capabilities:
+  - "Conversational design elicitation; repo exploration"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/brainstorming (checklist-driven three-path process, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "docs/文档导航.md (registration)"
+    - "docs/决策记录.md (prior decisions, when present)"
+  skills: [doc-index, writing-plans, tdd, domain-modeling]
+permissions:
+  - "Write within docs/ (调研/, 设计/) only; no source writes before approval"
+data_scope: "current workspace"
+risk_level: "L1"
+confirmation_required:
+  - "ANY implementation action (HARD-GATE)"
+input_contract:
+  required: "the user's idea or request"
+  optional: "repo context, existing specs, templates, prior decisions"
+  missing_behavior: "ask the questions that matter one at a time; if the user is unavailable, stop at the gate"
+output_contract:
+  format: "Spike = recommendation in chat (+ optional throwaway one-pager); Bounded = short design in chat + explicit yes; Architectural = spec file with **Status:** line"
+  quality: "no placeholders; spec registered in 文档导航; classification announced before first question"
+constraints:
+  - "HARD-GATE: no implementation before approval; ceremony scales, gate does not"
+  - "Ratchet one-way: discovered complexity upgrades the path, never downgrades"
+  - "Terminal states path-bound: Architectural -> writing-plans only; Bounded -> tdd directly; Spike -> recommendation only"
+forbidden:
+  - "Presenting a design and implementing in the same breath"
+  - "Self-approval of designs while the user is away"
+acceptance_criteria:
+  - "Design explicitly approved before any implementation"
+  - "Architectural specs on disk, registered, status line accurate"
+self_check:
+  - "Did I stop after presenting the design?"
+  - "Is the spec free of placeholders and contradictions?"
+failure_and_escalation:
+  design_rejected: "revise and re-present; no silent iteration"
+  hidden_complexity_mid_task: "stop, announce the path upgrade"
+  questions_exhausted: "surface what is unresolved; never guess"
+  user_unavailable_at_gate: "stop and wait; no self-serve override"
+stop_conditions:
+  - "Requirements cannot be clarified and the user is unavailable"
+cost_latency_budget:
+  max_tokens: "8000"
+  max_tool_calls: "10 (exploration before first question)"
+  over_budget_action: "present the design with what is known; list open questions"
+examples:
+  positive: "Bounded - 3 questions, short design, STOP, wait for yes, then tdd"
+  negative: "design presented and code written in the same turn"
+  edge: "\"can we even do X quickly?\" -> Spike; deliverable is an answer, not kept code"
+evaluation:
+  metrics: [HARD-GATE violations (target 0), first-pass approval rate, mid-task path re-classifications]
+observability:
+  log: "gate violations to docs/日志/ with task context"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/brainstorming; visual companion scaffolding dropped; HARD-GATE and path ratchet kept as result constraints."

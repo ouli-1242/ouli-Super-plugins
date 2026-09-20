@@ -1,0 +1,5 @@
+interface:
+  display_name: "Resolving Merge Conflicts"
+  short_description: "Resolve git merge or rebase conflicts"
+policy:
+  allow_implicit_invocation: false

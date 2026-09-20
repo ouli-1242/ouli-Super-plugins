@@ -1,0 +1,67 @@
+id: "NB-skills/writing-skills"
+name: "writing-skills"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Apply TDD to process documentation - baseline failure first, minimal skill, loophole closing, one tested skill at a time."
+when_to_use:
+  - "Creating or editing any skill; verifying a skill before deployment; retro (explicit request only)"
+when_not_to_use:
+  - "Bug postmortems (diagnosing-bugs); diff re-reviews (code-review)"
+  - "Project docs/READMEs; one-off prompt templates"
+required_capabilities:
+  - "Fresh sub-agent or conversation for baselines"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/writing-skills (RED-GREEN-REFACTOR walkthrough, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "this pack's constraints (frontmatter name+description only; single H1; body <=8KB; description <=1024 with Chinese anchors)"
+  skills: [superwork, diagnosing-bugs, code-review]
+permissions:
+  - "Write skill files within the pack; run baseline scenarios"
+data_scope: "current pack and test sessions"
+risk_level: "L1"
+confirmation_required:
+  - "Retro Mode (explicit user request only)"
+input_contract:
+  required: "the skill idea/defect to fix, or the retro request"
+  optional: "neighboring skills for exclusion wording"
+  missing_behavior: "no observed failure -> do not write the skill"
+output_contract:
+  format: "skill with SDO description (triggers only, Use when + Chinese anchors + NOT-for neighbors) and body in the failure-appropriate form; registered in the superwork index if lifecycle-stage"
+  quality: "baseline red -> green -> loopholes closed; body <=8KB"
+constraints:
+  - "Iron Law: no skill (new or edited) without a failing baseline"
+  - "Form follows failure type (pressure->prohibition+tables; shape->recipe; omission->slot; conditional->predicate)"
+  - "Micro-test wording with 5+ fresh samples against a no-guidance control"
+forbidden:
+  - "Batch-creating untested skills; deploying without GREEN evidence"
+  - "Workflow summaries in descriptions; nuance clauses that reopen negotiation"
+acceptance_criteria:
+  - "RED observed, GREEN verified, REFACTOR complete, format constraints pass"
+self_check:
+  - "Does the description summarize workflow anywhere (defect)?"
+  - "Did I stop after each skill?"
+failure_and_escalation:
+  control_does_not_fail: "stop; nothing to fix"
+  fails_under_new_pressure: "add the counter, re-test (REFACTOR, not rewrite)"
+  neighbor_conflict: "resolve exclusions in both descriptions or escalate"
+stop_conditions:
+  - "User declines baseline testing (record deviation)"
+cost_latency_budget:
+  max_tokens: "12000"
+  max_tool_calls: "micro-tests before full scenarios; one skill per cycle"
+  over_budget_action: "deliver baseline findings + draft, undeployed"
+examples:
+  positive: "baseline shows ONE review where two are required -> description rewritten to triggers only"
+  negative: "\"Add appropriate error handling\" left in a template"
+  edge: "retro fix lands as an AGENTS.md line via this skill's own discipline"
+evaluation:
+  metrics: [skills deployed without baseline (target 0), description trigger hit rate, loophole re-openings]
+observability:
+  log: "baseline transcripts (redacted) with the skill; failures feed references/rationalizations.md"
+review_cycle: "60 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/writing-skills; form-follows-failure table kept; registration target updated to the superwork router."

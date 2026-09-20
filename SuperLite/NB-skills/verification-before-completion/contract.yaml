@@ -1,0 +1,62 @@
+id: "NB-skills/verification-before-completion"
+name: "verification-before-completion"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Guarantee no success claim without fresh verification evidence for any deliverable (code, documents, analyses); carry honest boundaries with every claim."
+when_to_use:
+  - "Before any completion claim about code, documents, analyses, reports; commits/PRs; trusting agent reports"
+when_not_to_use:
+  - "As a substitute for code-review (review first at thresholds, then verify)"
+required_capabilities:
+  - "Ability to run/read verification commands; source access for non-code checks"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperLite/verification-before-completion (gate walkthrough, for mid/weak models)"
+dependencies:
+  tools: [project test/lint/build commands]
+  apis: []
+  data: []
+  skills: [code-review]
+permissions:
+  - "Run verification commands; read-only otherwise"
+data_scope: "current workspace"
+risk_level: "L0"
+confirmation_required: []
+input_contract:
+  required: "the claim about to be made"
+  optional: "plan/spec-prescribed checks"
+  missing_behavior: "no proving check exists -> report that fact; never claim"
+output_contract:
+  format: "claim + evidence (commands this turn / re-read / re-checked numbers) + 诚实边界 + 偏离声明"
+  quality: "no \"should/probably/seems to\" in any status claim"
+constraints:
+  - "Iron Law: no completion claims without fresh verification evidence"
+  - "Non-code deliverables: re-read against purpose, re-check numbers against source, confirm file exists at claimed path"
+forbidden:
+  - "Satisfaction or success wording before verification"
+  - "Trusting partial checks, stale runs, or agent success reports"
+acceptance_criteria:
+  - "Every success statement traceable to fresh evidence from this turn"
+self_check:
+  - "Can I point to the exact evidence for each claim?"
+  - "Is 诚实边界 present whenever something was skipped?"
+failure_and_escalation:
+  verification_fails: "state actual status with evidence; failure is the report"
+  no_proving_check: "name the missing evidence and ask how to obtain it"
+stop_conditions:
+  - "User unavailable and the claim cannot be evidenced"
+cost_latency_budget:
+  max_tokens: "4000"
+  max_tool_calls: "full commands as needed; subset + explicit coverage statement when prohibitively slow"
+  over_budget_action: "report what was verified and what was not"
+examples:
+  positive: "All tests pass: 34/34 (pytest -q, exit 0, this turn). 诚实边界: perf suite not run."
+  negative: "trusting a sub-agent's \"success\" without checking the diff"
+  edge: "analysis report -> every headline number re-checked against its source table"
+evaluation:
+  metrics: [unevidenced completion claims (target 0), honest-boundary presence rate, user-caught false claims]
+observability:
+  log: "evidence + 诚实边界 into the deliverable/handoff; deviations to docs/日志/ when a project exists"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/verification-before-completion; non-code deliverable clause kept."

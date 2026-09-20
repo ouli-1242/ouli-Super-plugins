@@ -1,0 +1,67 @@
+id: "NB-skills/writing-plans"
+name: "writing-plans"
+version: "1.0.0"
+owner: "ouli"
+status: "active"
+purpose: "Decompose an approved spec into bite-sized, independently testable tasks a context-free engineer can execute."
+when_to_use:
+  - "An approved design/spec needs to become an implementation plan, before any code"
+when_not_to_use:
+  - "Ideas that still need design (brainstorming)"
+  - "Small single-file tasks implementable directly (tdd)"
+required_capabilities:
+  - "Codebase reading; decomposition and test design"
+recommended_models: "flagship tier (strong models)"
+fallback_variant: "SuperWork/writing-plans (full template walk-through, for mid/weak models)"
+dependencies:
+  tools: []
+  apis: []
+  data:
+    - "the approved spec"
+    - "docs/文档导航.md (registration)"
+  skills: [brainstorming, executing-plans, doc-index]
+permissions:
+  - "Write within docs/计划/ only"
+data_scope: "current workspace"
+risk_level: "L1"
+confirmation_required: []
+input_contract:
+  required: "an approved spec (path or conversation of record)"
+  optional: "repo conventions, worktree setup (only if one exists)"
+  missing_behavior: "spec missing/unapproved -> stop, back to brainstorming"
+output_contract:
+  format: "plan doc at docs/计划/YYYY-MM-DD-<feature>.md; header (Status/Goal/Architecture/Tech Stack/Spec/Global Constraints) + task skeleton (Files/Interfaces/steps)"
+  quality: "every step one action (2-5 min) with actual code/commands; every task independently testable"
+constraints:
+  - "Plan steps already encode the red-green loop; executing-plans consumes them per task"
+  - "Fold setup into the task that needs it; split only where a reviewer could reject one task and approve its neighbor"
+forbidden:
+  - "TBD/TODO/implement later; 'add error handling'; 'similar to Task N'; steps without code; references to types no task defines"
+  - "Writing a plan for an unapproved spec"
+acceptance_criteria:
+  - "Spec coverage complete, placeholder scan clean, type consistency verified"
+  - "Plan saved and registered in 文档导航"
+self_check:
+  - "Can I point to a task for every spec requirement?"
+  - "Do signatures match across tasks?"
+failure_and_escalation:
+  spec_unapproved: "stop, back to brainstorming"
+  multi_subsystem_spec: "propose one plan per subsystem; ask if unclear"
+  untestable_requirement: "surface the gap to the user; never invent scope"
+stop_conditions:
+  - "Spec cannot yield testable steps and the user is unavailable"
+cost_latency_budget:
+  max_tokens: "12000"
+  max_tool_calls: "10 (exploration)"
+  over_budget_action: "deliver the plan with explicit open questions"
+examples:
+  positive: "Task 5 consumes parseConfig(): Result<Config> exactly as Task 3's Interfaces block produced it"
+  negative: "Step 2: implement the parser (see Task 3)"
+  edge: "requirement with no natural test -> task with a verifiable check, or the gap goes back to the user"
+evaluation:
+  metrics: [executor questions per plan, placeholder occurrences (target 0), spec-coverage gaps found at execution]
+observability:
+  log: "coverage gaps/deviations to docs/日志/ feeding the next plan"
+review_cycle: "90 days"
+changelog:
+  - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/writing-plans; header/task templates kept as output contract; process narrative dropped."
