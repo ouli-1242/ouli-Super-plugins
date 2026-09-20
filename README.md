@@ -46,5 +46,4 @@
 ## 说明
 
 - 本仓库为源码备份，MCP Server 开发与发布以各自独立仓库为准。
-- `Dhole-MCP/` 二创自 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch)，`DeepEye-MCP/` 二创自 [Favio8/deepeye](https://github.com/Favio8/deepeye)，上游均为 MIT。
 - MIT License，作者 Ouli。
