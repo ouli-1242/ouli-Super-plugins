@@ -1,7 +1,6 @@
 # Ouli Super Plugins
 
-Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code skill 插件、MCP Server 与 Agent Skill。
-
+Ouli 的个人插件合集（源码托管 / 备份仓库）
 ## 插件列表
 
 ### Skill 插件（Agent Plugin）
@@ -18,8 +17,8 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | 子目录 | 包名 | 版本 | 独立仓库 | 说明 |
 |---|---|---|---|---|
 | [`FastGraph-MCP/`](FastGraph-MCP/) | `fastgraph-mcp` | 0.2.0 | [ouli-1242/FastGraph-mcp](https://github.com/ouli-1242/FastGraph-mcp) | 轻量实时代码智能 MCP：AST + 增量索引 + 代码图，无 embedding、低内存、低 context；提供项目级检索、调用图与影响分析 |
-| [`Dhole-MCP/`](Dhole-MCP/) | `dhole-mcp` | 14.0 | [ouli-1242/dhole-mcp](https://github.com/ouli-1242/dhole-mcp) | 让 AI 代理访问互联网：抓取、爬取、反爬绕过、PDF（含扫描件）解析、无密钥网页搜索，共 8 个工具（二创自 [dondai1234/master-fetch](https://github.com/dondai1234/master-fetch)） |
-| [`DeepEye-MCP/`](DeepEye-MCP/) | `deepeye-mcp` | 0.2.0 | [ouli-1242/deepeye-mcp](https://github.com/ouli-1242/deepeye-mcp) | 为纯文本大模型提供视觉能力：图像描述 / OCR / 视觉问答 / 布局分析（二创自 [Favio8/deepeye](https://github.com/Favio8/deepeye)） |
+| [`Dhole-MCP/`](Dhole-MCP/) | `dhole-mcp` | 14.0 | [ouli-1242/dhole-mcp](https://github.com/ouli-1242/dhole-mcp) | 让 AI 代理访问互联网：抓取、爬取、反爬绕过、PDF（含扫描件）解析、无密钥网页搜索，共 8 个工具 |
+| [`DeepEye-MCP/`](DeepEye-MCP/) | `deepeye-mcp` | 0.2.0 | [ouli-1242/deepeye-mcp](https://github.com/ouli-1242/deepeye-mcp) | 为纯文本大模型提供视觉能力：图像描述 / OCR / 视觉问答 / 布局分析 |
 
 ### Agent Skill
 
@@ -38,7 +37,7 @@ Ouli 的个人插件合集（源码托管 / 备份仓库），包含 Claude Code
 | [`提示词/opencode-AGENTS.md`](提示词/opencode-AGENTS.md) | OpenCode | 全局 AGENTS.md 配置 |
 | [`提示词/hermesSOUL.md`](提示词/hermesSOUL.md) | Hermes | 身份与判断准则（SOUL） |
 | [`提示词/hermesWORK.md`](提示词/hermesWORK.md) | Hermes | 默认操作流程（WORK） |
-| [`提示词/RULE.md`](提示词/RULE.md) | 通用 | 通用编码与 Agent 行为规则源（纯 Markdown，可套用至各 agent；Rule.mdc 为 Cursor 应用版） |
+| [`提示词/RULE.md`](提示词/RULE.md) | 通用 | 通用编码与 Agent 行为规则源 |
 | [`提示词/Rule.mdc`](提示词/Rule.mdc) | Cursor | Cursor 规则应用版（`.mdc`，`alwaysApply: true`） |
 | [`提示词/1bs.md`](提示词/1bs.md) | 通用 | 第一性原理 + 对抗性审阅提示词 |
 | [`提示词/2unc.md`](提示词/2unc.md) | 通用 | 不确定性枚举与验证方式提示词 |
