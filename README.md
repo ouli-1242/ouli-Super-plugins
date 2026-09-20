@@ -17,7 +17,7 @@
 | 目录 | 包名 | 版本 | 说明 |
 |---|---|---|---|
 | `FastGraph-MCP/` | `fastgraph-mcp` | 0.2.0 | 轻量代码智能 MCP：AST + 增量索引 + 调用图 |
-| `Dhole-MCP/` | `dhole-mcp` | 14.0 | 网页抓取/爬取/反爬/PDF/搜索，8 个工具 |
+| `Dhole-MCP/` | `dhole-mcp` | 14.1 | 网页抓取/爬取/反爬/PDF/搜索，8 个工具 |
 | `DeepEye-MCP/` | `deepeye-mcp` | 0.2.0 | 为文本模型提供视觉能力：描述/OCR/问答/布局 |
 
 安装：`pip install fastgraph-mcp` / `pip install "dhole-mcp[all]"` 
