@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "openeye-mcp"
 dynamic = ["version"]
-description = "OpenEye - 为纯文本大模型提供视觉能力的 MCP Server（图像描述 / OCR / 视觉问答）"
+description = "为纯文本大模型提供视觉能力的 MCP Server：读图 · 识字 · 解表格 · 复刻 UI。Give text-only LLMs vision via MCP: image description, OCR, VQA, UI layout & tables."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
