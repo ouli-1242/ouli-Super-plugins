@@ -9,6 +9,270 @@
 > 版本号是自己的，与上游版本不可比。`src/dhole_mcp/__init__.py` 中的
 > `__version__` 是版本的唯一权威来源。
 
+## [14.5] - 2026-09-21
+
+一次以「让静默降级可被观测、把说得太满的地方改准」为主的版本。测试 755 → 949，
+仍然全部离线（默认运行零网络）。
+
+### 修复（静默降级）
+- **`engines_consensus` 不再在降级池上伪装成「全员一致」。** 分母原先是「本轮实际
+  返回了结果的索引家族数」，于是 4 个家族 empty/被墙、只剩 1 个活着时，那 1 个的每条
+  结果都渲染成 `1 of 1` —— 一个本该削弱结论的信号反过来给结论加了分。分母改为由配置池
+  推出的家族全集（全家被 preempted、根本没轮到的才扣除），并新增 `consensus_basis`
+  （`full|single_family|partial_pool|degraded_pool`）。只有 1 个家族时不再伪装成比率：
+  `1 of 1 (no corroboration)`。**引擎数 ≠ 索引家族数**（bing/duckduckgo/yahoo 同一索引）：
+  修这个 bug 时是 5 引擎 / 3 家族，本版把 sogou_weixin 加入默认池后是 6 / 4 —— 满分是
+  `4 of 4`，此前文档里的 `3 of 5` 是不可能出现的字符串。本机实测 10/10 次搜索都是这个形态。
+- **降级标注此前在搜索缓存命中时全部丢失。** 「部分引擎未贡献」与「低置信度」两条只加在
+  live 路径上，TTL 内的重复查询（agent 的常态）不带任何提示——同一份降级结果，第二次问
+  就被包装成干净结果。抽成 `_pool_health_notes` 供两条路径共用，并有回归测试。
+- **`empty`（引擎答了、解析出 0 条可用）此前在响应里彻底隐形**：它 `ok` 与 `blocked`
+  都是 False，于是既不进 `engines_used` 也不进 `engine_blocked`。新增
+  `engine_empty` / `engine_preempted` 两个列表；`_search_next_action` 的分母算上
+  empty（4/5 解析器坏了此前被读成 1/1 = 健康，多样性警告永不触发），并把「被墙」与
+  「答了但解析不出东西」分开表述。顺带修一处错分：`init_error:*` / `no_key:*` 不以
+  `error` 开头，原先落到 else 被当成「无结果」。
+- **零结果时的自动改写按原因分别处置。** 原先对「查询真的太窄」和「解析器跟不上页面」
+  一视同仁，后者会再打一轮全量 fan-out（在上游正改版那天把请求量翻倍），且最终输出
+  `Try rephrasing the query.`——把自家故障诊断成用户的查询问题。现在依据每引擎产出计数
+  判定：`item_nodes>0 且 usable==0` 且**全部**引擎皆如此时跳过第二轮并说明是解析器漂移、
+  指向 `dhole -v`；部分坏则第二轮只问还活着的引擎。**窄查询的改写救回原样保留**。
+- **口令保护的 PDF 此前被误报成"文件打不开"。** pdfplumber 把 pdfminer 的
+  `PDFPasswordIncorrect` 包成 `PdfminerException`，而它的 `str()` 是**空串**；原判定按
+  消息文字找 "password"/"encrypt"，于是真机上永远命不中，用户拿到的是
+  `pdf_open_failed: `（连原因都没有）且 `encrypted=False` —— 加密 PDF 看起来像文件损坏，
+  agent 不会想到去用 `password` 选项。改为按**类型**（含异常链里的原类型）判定，并把
+  "没给口令"与"口令被拒"分开说明；加密方案不支持时是第三条独立消息。补 `tests/test_pdf_real.py`：
+  用真字节（`tests/background_checks.pdf` 现场 AES-256 加密，pypdf 走 dev extra）钉住
+  缺/错/对三态 + 损坏文件反例，顺带把仓库里两个从没被引用的真 PDF 接进测试。
+- **`auto` 模式下「依赖装了但重排没启用」不再零解释。** 精简安装仍保持安静（那是预期
+  形态，每次都解释是噪声）。
+- **Bing 版面导致整轮结果为空（实测到的线上故障）。** Bing 同时跑两种标题链接版面，
+  其中一种把 `<a>` 放在 `<h2>` 的**祖先**上，而 href xpath 只查后代 → 5 个结果容器全部
+  读不出链接、整轮 bing 为空、状态记成 `empty` 且在响应里哪儿都不出现。连测 5 次都是这
+  一版，`Bing.search()` 自带 3 次重试也救不回。改为并集 + `ancestor::a` 回退（不绑样式
+  类名）。修复前后各实测确认（0 可用 → 5/10 可用）。
+
+### 新增（可观测性）
+- **每引擎解析产出统计。** 熔断器只记「引擎拒不拒绝我们」，记不到「200 好好答了但
+  xpath 取不到东西」。现在每轮记 item_nodes / usable / post-filter kept 三个整数，判据
+  **不依赖历史基线**（新装机第一次搜索就能判漂移），含糊那一格样本不足时如实报
+  `unknown` 而不是猜。落 `~/.dhole/engine_stats.json`（≥60s 防抖），`dhole -v` 新增
+  `engine yield` 行；读取端只做文件系统读，保证在半坏的精简安装上也能跑。顺带让此前
+  是死代码的 `ProxyPool.status()` 在 `-v` 里有了出口。
+- **默认池解析器契约测试。** 期望条数由**独立 oracle**（bs4 + html.parser，与被测的
+  lxml+xpath 不共享 parser 也不共享查询语言）算出，避免「我的解析器同意我的 fixture」。
+  断言分六类（oracle 一致 / 每条都有 href+title / 后处理不归零 / ck-a 必须解掉 / 摘要
+  成带 / 负控与 JS 壳读成 0 容器）。fixture 内容寻址 + 禁止无主 fixture + **不写年龄
+  断言**。`-m live` 另加 `--engine-fixtures` 双门槛，只有确认漂移才判红（0 结果的真
+  SERP 是天气不是故障）。本机网络不可达的 brave/duckduckgo/yahoo 明确 skip 并给出补齐
+  命令，**没有捏造假 fixture 冒充覆盖**。
+- **`DHOLE_HOME`**：状态目录可换位置（里面是全部正文明文、搜索词与模型）。POSIX 下目录
+  0700、状态文件 0600；Windows 上 chmod 基本无效，已在 README 写明那边的实际手段是换位置。
+- **三个状态文件的落点改为惰性求值。** `circuit_breaker.json` / `search_feedback.json`
+  原先在模块导入时就把路径快照成字符串常量，只加 `DHOLE_HOME` 会让它对一部分文件失效
+  —— 半生效的开关比没有开关更糟。顺带解决一个实测到的副作用：**跑一次测试套件就会改掉
+  用户真实的引擎冷却状态与域名偏好**（实测抓到 `circuit_breaker.json` 的 md5 变化，以及
+  一条 brightdata 记录被写进 `engine_stats.json`）。现在 conftest 把三个落点统一指到临时
+  目录，并有一组测试钉住「必须由 paths.py 派生且是惰性的」这条约定。实测复验：全量用例
+  跑完，真实 `~/.dhole` 下所有文件的 size/mtime 零变化。
+
+### 安全
+- **浏览器层补齐 SSRF 守卫（此前 README 说"盲打而非数据外泄"，实测那句话是错的）。**
+  入口 URL 过了 `validate_url`，但浏览器内部的重定向 / 子资源 / 页面 JS 的 fetch 都不过 ——
+  一个被 JS 壳或反爬墙逼着升级到浏览器的页面，只要把浏览器引到 `http://169.254.169.254/`
+  （云元数据）或 `http://127.0.0.1:9222/`（本机服务），**渲染出的内网正文会被抓回给 agent**。
+  现在每个 page 都装 route handler：请求前判定目标是否解析到内网（覆盖 JS fetch/XHR、
+  iframe、JS 跳转 —— 真浏览器靶场实测这三类请求一条都没发出去），落地后再判一次
+  （主文档被拦或落地即内网 → 抛 `ssrf_blocked`，正文一个字不回流、不重试）。入口站点
+  豁免（已过边界校验；含同站点 http↔https 升级），**异端口不豁免** ——
+  `localhost:8080` → `localhost:9222` 正是典型内网跳板。
+  **实测到的残余**：HTTP 3xx 重定向的目标仍会被请求一次（patchright/Playwright 的 route
+  不拦截 `continue_()` 之后的重定向目标 —— 这是拦截模型，不是漏判），内容是拒了，但"盲打"
+  这半边还在；连它一起堵要在解析器/代理层做，与 Cloudflare 求解这条唯一能力面冲突且无法
+  在此验证，故不做，README 里写明。顺带：`page.route` 此前只在 `disable_resources=True`
+  时安装，截图与交互 session 一条防线都没有，现在每条路径都装。守卫的离线单测在
+  `tests/test_browser_ssrf.py`，真浏览器的靶场证明同文件标了 `e2e`（`-m e2e` 才跑，
+  判红依据是靶场自己的命中计数：内网服务器一次都没被连上）。
+- **缓存指纹补上 PDF 口令维度。** 14.3 给缓存键补了 cookies/headers/UA/proxy 四维，
+  `password` 这一维漏了——而它是一等参数且真的参与解密，于是带口令解出的正文与同一 URL
+  的匿名行撞同一个键，之后的匿名请求可直接复读。缓存层实测复现（完整 HTTP 往返未跑）。
+  旧库做一次性定向清理（只删 PDF 行，走 SQLite 自带的 `PRAGMA user_version`）——作废
+  整个缓存对这个工具有实代价：被拦页面在某些网络上再也抓不回来。
+- **hosts 豁免按「钉到哪个值」判定。** 原先只看名字在不在文件里，而屏蔽类 hosts 把上千个
+  域名钉到 `0.0.0.0`（Windows/macOS 上作为连接目标等同回环）；「攻击者写不了你的 hosts」
+  这个原论证失效——他只需挑一个已经在里面的名字。黑洞钉位不再自动放行，本机开发/分流
+  覆盖（`127.0.0.1`、`172.16.x`）维持豁免。本机无 `0.0.0.0` 钉位，故这条是**预防性**的。
+- **`tcp_preflight` 不再是内网端口 oracle。** 它此前对外部可控 URL 做裸 TCP 连接并把
+  `connection_refused`/`dns_failure` 的区别原样回报给 agent。现在连前先判一次，命中内网
+  时返回与「真的不可达」同形的类别。
+- **自愈重装钉在当前已装版本。** 此前 `dhole` 入口任何 ImportError 都会无人值守地
+  `pip install --force-reinstall dhole-mcp`（不带版本），信任根等于包名字空间；这个 fork
+  的名字改过两次，CHANGELOG 里就记着它曾因解析到上游发行名而覆盖掉本 fork。cli 与
+  updater 两份模板一起钉。**残余未改**：捕获范围仍不限模块、且重装前会 kill 所有 dhole
+  进程——那属于产品取向而非缺陷，`DHOLE_NO_AUTO_REPAIR=1` 可关。
+- **重排模型支持发布方 sha256 真实性校验。** 原实现是「下载完算自己刚下的字节的哈希再
+  写盘」，那是完整性不是真实性。机制已就位（不符即删+重试一次，仍不符则拒绝加载并说明
+  原因）。API（HF 502 / hf-mirror 403）取不到摘要，改从**仓库元数据**取 LFS oid
+  （`<repo>/raw/<rev>/<path>` 是 git 里提交的那份指针，不是下载端点）：bge-zh 与
+  ms-marco 的 oid 已填，且与本机实际下载的字节逐位核对一致（两个文件都真在用）；
+  zh-full 未在本机下载过，无从核对，**留空**（机制对它是惰性的——宁可空着也不填一个
+  只能靠信任的数字）。有测试断言「填了就必须是 64 位十六进制、且不许出现未核对的摘要」。
+- 新增 `security.url_targets_internal()`：复用 `validate_url` 本体的单一内网谓词，
+  供 preflight 与后续浏览器层共用，避免出现第二份判定实现。
+
+### 变更（默认引擎池）
+- **sogou_weixin（搜狗微信）进入默认池**：默认池 5 → 6 引擎、3 → 4 索引家族。理由是它
+  国内裸网直连（实测 0.2-0.9s），让国内自然可达的引擎凑到 3 个（bing/yandex/sogou_weixin），
+  恰好够 `min_engines=3` 的多样性门槛——不必为了凑引擎数去挂 VPN；内容池也是独家的
+  （公众号文章在 Bing/百度里搜不全）。随之处理的五件事：
+  - 它是**垂直索引**（只覆盖公众号文章）。有神经重排器时相关性由模型判；**没有重排器**
+    （精简安装）时的兜底顺序就是完成顺序，而它答得比 bing(1.3s)/yandex(3.1s) 快，会把
+    公众号结果顶到最前。新增 `_general_first()`：纯垂直结果（没有被任何通用引擎也返回过的
+    URL）排到通用结果之后；有重排器时这条规则不介入。
+  - **它也不能独自填满早退配额**（实测踩到的第二个坑）：sogou 一次回 10 条，配额
+    (`max_results+4`) 被它一个人满足，2s 软截止一到就把还在跑的通用引擎全 cancel ——
+    本机实测 yandex 就是这样被砍掉的，而它恰是另一个国内可达的通用索引：**为了加宽池子
+    而加入的引擎，反而把池子收窄了**。现在早退的"结果够多了"只算通用引擎的产出（通用
+    引擎全部不在跑时，垂直结果仍可自己触发早退，不牺牲"别等死引擎"的初衷）。软截止也
+    顺手提成模块常量 `_SOFT_DEADLINE`，让这条规则的测试不必真睡 2 秒。修完实测：
+    `engines_used=[sogou_weixin, bing, yandex]`、分母回到 4，搜索耗时 2.0s → 2.9s。
+  - 它拿**原始** query，不拿意图展开后的变体：`_INTENT_EXPANSIONS` 只有两串英文，对几乎
+    全中文的公众号索引只有反作用（进 `_CORE_QUERY_ENGINES`）。
+  - 默认池引擎首次凑齐「有真页面契约」的一个（`tests/engine_fixtures/sogou_weixin.html`，
+    活页 10 容器裁到 4）。收这个 fixture 时踩到并修掉两个测试基建 bug：裁剪只留结果容器会
+    丢掉 `items_xpath` 依赖的**祖先链**（sogou 的 xpath 要求 `ul.news-list` 祖先，剪完
+    解析器一条都匹配不到），以及 token 清洗/守卫正则只认裸 `&`、漏掉 HTML 转义的
+    `&amp;token=`（真页面里就是后者）。
+  - 文档与 schema 都注明了：sogou 的结果是 `weixin.sogou.com/link?url=` 跳转包装，浏览器
+    能打开，但不是文章原始 URL。
+
+### 变更 / 修正的说明
+- `dhole --cache-ttl` 此前是**死参数**（默认值在函数定义时被焊进签名，实例值永远被遮住），
+  现已生效；`cache_ttl=0` 绕开缓存的既有语义不变。
+- 意图展开的 core 引擎集合去掉三个从未存在的名字（mojeek/startpage/google/qwant），
+  bing 不再是被唯一改写提问的默认引擎；补「集合里不许出现不存在的引擎名」守卫。
+- 默认池在两个模块各有一份，**未强行合并**（合并会逼 `search_engines` 顶层 import
+  primp/lxml，破掉刻意的惰性导入），改为一致性测试钉住——这是对原计划的有意偏离。
+- 修正三处与实际引擎池矛盾的说明、README 两处过度承诺（HF「字节一致」、模型「做哈希
+  校验」）与一处模型尺寸/文件数标注。
+- README 新增「SSRF 防护覆盖到哪里、到不了哪里」小节，并首次写明全部安全结论所依赖的
+  **单机单用户前提**。原计划给浏览器层加 `--host-resolver-rules`，**未实施**：建立不起
+  可稳定复现的 Cloudflare 回归样本，在无验证手段的前提下改动唯一不可测的能力面风险高于
+  收益，故按计划写明降级为文档。
+
+## [14.4] - 2026-09-21
+
+### 新增
+- **重排模型可选，默认换成中英双语的 `bge-zh`。** 相关性排序用一个
+  本地 cross-encoder——它回答的是「这条结果跟问题真有关吗」，引擎自己的排名给
+  不了这个信息。注册三个模型：
+  - **`bge-zh`（默认）**：BAAI `bge-reranker-base` 的 int8 版
+    （`Xenova/bge-reranker-base`，中英双语训练，~279MB）——中文 ranking 比多语
+    蒸馏好，体积也比 fp32 小 38%。
+  - **`zh-full`**：`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`（fp32，~450MB，
+    跨语言）——想要极限多语精度、且带宽够时用。
+  - **`ms-marco`**：英文 MS MARCO MiniLM（~91MB，14.x 默认，保留兼容）。
+  - **选择方式**：`dhole model`（列出 + 标注当前生效）/
+    `dhole model use <name>`，或直接编辑
+    `~/.dhole/config/reranker.json`（`{"model": "..."}`）。CLI 写的是同一个
+    文件，不是第二份事实来源。
+  - **未注册的名字一律拒绝**：`dhole model use` 报错并不写文件；文件里写了
+    未知名则回退默认 + 告警——绝不静默换个模型给结果打分。
+  - **模型各自独立目录**（`~/.dhole/models/<name>/`），切换不覆盖对方；
+    14.x 已下载的英文模型目录会自动改名保留（`msmarco-minilm-l6-v2` →
+    `ms-marco`），**不会因为改名重下 91MB**。
+  - **下载可断点续传**：HF CDN 首字节慢、字节流会卡。现在下载失败保留
+    `.part`，下次从断点续传；连续 90s 无字节则主动中止而不是挂着；文件写完前
+    有 100MB/300MB/50MB 的尺寸下限，截断的下载不会被当真。
+  - `dhole -v` 的 neural rerank 行现在报出**生效的模型名 + 描述**，未下载时
+    报出该模型的体积与配置文件位置。
+- 新增 `tests/test_reranker_models.py`：注册表完整性（每个条目都可下载可加载）、
+  默认值、配置文件选择、未知名拒绝/回退、`model_present()` 跟随生效模型、
+  目录改名不覆盖、配置路径落在同一根下。
+
+### 变更
+- `reranker.MODEL_ID` / `MODEL_REV` / `MODEL_DIR` 保留为兼容别名（指向默认
+  模型）；运行时取模型请用 `active_model()` / `active_model_dir()`。
+
+## [14.3] - 2026-09-21
+
+### 修复（信任信号）
+- **`envelope.classify_source` 的 gov 判定可被任意域名伪造。** 原实现测
+  `".gov." in host`，于是 `foo.gov.attacker.com`（完全由攻击者注册）被判为
+  `gov` + `is_official=True` 并直接交给 agent 当权威信号。改为
+  `host == "gov"` / `*.gov`（美国 .gov 为不可注册 TLD）/ `*.gov.<2 字母 ccTLD>`
+  （gov.uk / gov.br / gov.cn，label 对由注册局保留）。
+- **`docs.*` / `developer.*` 不再返回 `is_official=True`。** 这是形状信号不是
+  权威信号：任何站点都能给自己的域名起一个 docs 子域。`source_type` 照旧
+  返回 `docs-site`，字段描述与指令措辞同步改为与实现一致（is_official 只对
+  gov / edu / github 为真）。
+
+### 修复（作用域）
+- **缓存按请求上下文分区。** 缓存键原本只有 URL + 抽取参数，而
+  `~/.dhole_mcp_cache/cache.db` 是整机共享的：带 cookies/auth 抓来的正文会被
+  之后一次匿名抓取原样回放（`cached=True`、`content_ok=true`），
+  `include_media=false` 抓的内容也会顶替 `include_media=true` 的请求。现在
+  cookies / 自定义头 / UA / 代理 / 内容开关会进指纹（`server._cache_context`）；
+  纯默认请求指纹为空，已有缓存条目与旧键完全一致，不会被一次性作废。
+- **隐式域名加权默认关闭。** `fetch_content` 抓到过的域名会永久 +0.05 并落盘
+  `search_feedback.json`——按「抓到过」而非「有用」改写跨引擎共识排序，且是
+  用户没要求过的持久状态。改为 `DHOLE_SEARCH_FEEDBACK=1` 显式开启，关闭时
+  连文件都不写。
+- **DNS 内网复查默认开启**（`DHOLE_SSRF_DNS_RECHECK=0` 关闭）。工具的输入是
+  agent 从不受信任来源拿到的 URL，"公网域名指向 127.0.0.1 / 169.254.169.254 /
+  内网段"是 SSRF 主路径。为不误伤"本机故意阻断"的场景：**hosts 文件里显式
+  钉住的域名一律放行**（攻击者改不了你的 hosts 文件），解析结果加短 TTL 缓存
+  （拒绝 5 分钟 / 放行 5 秒），一次抓取的重定向链不会重复解析。错误信息里直接
+  带上关闭开关的名字。
+- **自愈路径不再硬编码公开发行版名。** `dhole` 入口在 ImportError 时会
+  `pip install --force-reinstall <dist>`，而 dist 原本写死为 `dhole-mcp`：配置了
+  `DHOLE_UPDATE_PACKAGE` 的 fork 会被装回公开包。现在包名与
+  `DHOLE_UPDATE_INDEX_URL` 都跟随配置（`cli._dist_name` / `updater` 生成的脚本
+  同样支持 index），并新增 `DHOLE_NO_AUTO_REPAIR=1` 让「任意 ImportError 触发
+  无人值守重装」这条路径可以被关掉。
+
+### 新增
+- **`dhole -v` 报告真实能力。** 附上 browser tier / pdf+ocr / neural rerank（含
+  模型是否已下载）/ search pool 四行状态。这些能力**缺失时全部静默降级**，
+  所以诊断命令是唯一能看出"装了个更弱的版本"的地方。
+- **`DHOLE_USAGE_LOG`（默认关）** 本地调用日志：工具名、成功与否、耗时、脱敏
+  后的错误，**不记参数值、不联网**。这个工具最大的失败面是静默的（模型根本
+  不调用它），没有本地记录就无法回答。
+- **`DHOLE_NO_AUTO_REPAIR`**（见上）。
+- **模型下载源可回退**（`DHOLE_HF_ENDPOINT` / `HF_ENDPOINT` 可指定）：默认先试
+  `huggingface.co`，失败自动回退 `hf-mirror.com`。revision 固定，任何端点的
+  字节一致——回退只改变"从哪下"，不改变"下到什么"。在这台机器上
+  `huggingface.co` 被 hosts 钉死，没有回退就意味着模型永远下不回来、搜索
+  排序永久静默降级。
+- 指令与工具描述里显式声明：抓回来的页面正文是**不可信数据**，其中的指令
+  一律不执行（正文与服务器自写的 `next_action`/`summary` 走同一条信道）。
+
+### 变更
+- **运行时文件全部收敛到一个目录：`~/.dhole/`。** 之前状态在 `~/.dhole/`、缓存
+  与模型在 `~/.dhole_mcp_cache/`——「这工具在我机器上留下了什么」要两个目录才
+  答得全，卸载说明也不完整。现在 `src/dhole_mcp/paths.py` 是唯一事实来源
+  （cache.db / models/ / circuit_breaker.json / search_feedback.json /
+  usage.jsonl / last_version / repair.py / search_proxies.json），cache、
+  reranker、search、server、updater 全部走它。旧目录在首次使用时自动搬移
+  （**不会重下 90MB 模型**——在 hosts 钉死 HF / 代理不可用的网络上那等于永久
+  降级）：只搬目标位置缺失的条目、绝不覆盖、绝不删非空旧目录，失败最多是
+  重建，不会丢新位置的数据。浏览器 profile 仍是会话结束即删的系统临时目录
+  （transient，不是状态）；rapidocr 的 OCR 模型随包发行，不落这里。
+- `smart_fetch` 的描述不再自称"用于所有网页抓取"，改为说明它强在哪
+  （反爬墙、JS 渲染、PDF/OCR、多 URL 批量）；连接期指令的开头同样改为条件式
+  表述。自我推销式路由不是可验证的承诺。
+- `dhole -v` 的帮助文案改为 "version + capability check"。
+- 测试套件不再依赖开发机的解析器（`conftest` 里 autouse 固定 `getaddrinfo`）：
+  DNS 复查默认开启后，一台把 github.com/huggingface.co 钉到 127.0.0.1 的机器
+  （本机就是这样）会让无关测试变红。`conftest` 同时全局跳过迁移
+  （`_legacy_migrated`），跑测试不会搬动真实用户目录；test_paths 自己重置开关
+  来测迁移本身。
+- **删除 `package.json`。** 它是 pi-extension 时代（该扩展 13.14 已移除）的残留，
+  且是第三个版本号来源（写着 14.0，实际 14.2.1）——正是 13.14 收敛掉的同一类
+  缺陷。需要它的话 `git checkout HEAD -- package.json` 可一行还原。
+- `pyproject.toml` 的 wheel packages 去掉 14.1 已删除的 `src/hound_mcp`。
+
 ## [14.2.1] - 2026-09-20
 
 ### 变更

@@ -40,9 +40,11 @@ from __future__ import annotations
 import os
 import sys
 
+from dhole_mcp import paths
+
 __all__ = [
     "check_version", "pad_version",
-    "do_update", "print_version",
+    "do_update", "print_version", "print_capabilities", "capabilities",
 ]
 
 
@@ -65,6 +67,22 @@ def update_package() -> str:
 def _dist() -> str:
     """Distribution name used when building pip commands."""
     return update_package() or _DIST_NAME
+
+
+def _dist_spec() -> str:
+    """pip 目标：能确定当前版本就钉住，否则裸包名。
+
+    与 cli._pip_spec 同一意图 —— 自愈/自更新都不该在无人值守时拉"索引上当前的最新
+    版"。这里不复用 cli 的那个函数是为了避免 updater←→cli 的导入环（cli 只在
+    main() 里惰性导入 server，而 server 导入 updater）。
+    """
+    dist = _dist()
+    try:
+        from importlib.metadata import version as _v
+        ver = (_v(dist) or "").strip()
+    except Exception:
+        ver = ""
+    return f"{dist}=={ver}" if ver else dist
 
 
 def update_index_url() -> str | None:
@@ -225,7 +243,7 @@ def _stop_all_dhole() -> None:
 
 
 def _dhole_home() -> str:
-    p = os.path.join(os.path.expanduser("~"), ".dhole")
+    p = str(paths.home())
     os.makedirs(p, exist_ok=True)
     return p
 
@@ -249,6 +267,9 @@ of dhole-mcp never touches it.
 """
 import subprocess, sys
 
+# DHOLE_UPDATE_INDEX_URL baked in at write time (empty list = pip's default index).
+_INDEX_ARGS = __INDEX_ARGS__
+
 def _stop():
     if sys.platform == "win32":
         subprocess.run(["taskkill", "/IM", "dhole.exe", "/F"], capture_output=True)
@@ -258,17 +279,19 @@ def _stop():
 
 def _pip(*extra):
     return subprocess.run(
-        [sys.executable, "-m", "pip", "install", *extra, "--quiet",
+        [sys.executable, "-m", "pip", "install", *extra, *_INDEX_ARGS, "--quiet",
          "--disable-pip-version-check"])
 
 def main():
     print("Dhole repair: stopping any running dhole...")
     _stop()
-    print("Dhole repair: force-reinstalling dhole-mcp from PyPI...")
-    r = _pip("--force-reinstall", "--upgrade", "dhole-mcp")
+    print("Dhole repair: force-reinstalling __SPEC__ ...")
+    # 钉到当前已装版本时不能再带 --upgrade（两者意图相反），故按 SPEC 形态选参数。
+    _pinned = "==" in "__SPEC__"
+    r = _pip("--force-reinstall", *([] if _pinned else ["--upgrade"]), "__SPEC__")
     if r.returncode != 0:
         print("Dhole repair: reinstall failed (pip exit %d)." % r.returncode)
-        print("  Try manually:  %s -m pip install --force-reinstall dhole-mcp" % sys.executable)
+        print("  Try manually:  %s -m pip install --force-reinstall __SPEC__" % sys.executable)
         return r.returncode
     try:
         from importlib.metadata import version as _v
@@ -286,6 +309,8 @@ if __name__ == "__main__":
 
 def _write_repair_script() -> None:
     """(Re)write ~/.dhole/repair.py so the brick-recovery safety net exists."""
+    index = update_index_url()
+    index_args = ["--index-url", index] if index else []
     try:
         with open(repair_script_path(), "w", encoding="utf-8") as f:
             f.write(
@@ -293,6 +318,10 @@ def _write_repair_script() -> None:
                 .replace("__REPAIR__", repair_script_path())
                 # 生成脚本里的包名跟随自更新源，避免把上游包名写死
                 .replace(_DIST_NAME, _dist())
+                # 索引源同理：否则自愈会悄悄从默认 PyPI 拉包
+                .replace("__INDEX_ARGS__", repr(index_args))
+                # 重装目标钉在当前已装版本（取不到版本时才退回裸包名）
+                .replace("__SPEC__", _dist_spec())
             )
     except OSError:
         pass  # home dir not writable; not fatal - the update can still proceed
@@ -614,8 +643,14 @@ def do_update(target: str | None = None) -> None:
 
 
 def print_version() -> None:
-    """Render `dhole -v`: a compact bordered version panel (or a clean error
-    panel when the install is corrupted, pointing at the safe repair path)."""
+    """Render `dhole -v`: the version panel, then what this install can actually do."""
+    _print_version_panel()
+    print_capabilities()
+
+
+def _print_version_panel() -> None:
+    """A compact bordered version panel (or a clean error panel when the install
+    is corrupted, pointing at the safe repair path)."""
     from dhole_mcp import cli_ui as ui
     W = 50
     inner = W - 4
@@ -664,5 +699,191 @@ def print_version() -> None:
             ui.lr(ui.ver(installed), ui.magenta(f"v{latest} available"), inner),
         ], W))
         print("  " + ui.warn("update with") + "  " + ui.cmd("dhole -u"))
+
+
+# ─── capability report (`dhole -v`) ─────────────────────────────────────────
+#
+# Every optional piece below turns a headline feature OFF WITHOUT AN ERROR:
+# without patchright/playwright the fetch pipeline is HTTP-only, without
+# onnxruntime/tokenizers (or before the ~90MB model is downloaded) search falls
+# back to consensus order, and all of them live in the [all] extra only. In a
+# silent-degradation design the diagnostics command is the one place a user can
+# see which parts are actually in place - otherwise the tool just looks "fine
+# but worse" forever.
+
+def _has_module(name: str) -> bool:
+    """True if `name` is importable, without importing it."""
+    try:
+        import importlib.util
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+
+def _reranker_model_present() -> bool:
+    """True if the ACTIVE reranker model is already cached locally.
+
+    Never imports the reranker (which pulls onnxruntime/torch-adjacent deps);
+    the check is pure filesystem on the registry entry. Diagnose via
+    ``dhole -v``.
+    """
+    try:
+        from dhole_mcp.reranker import active_model, active_model_dir
+        model = active_model()
+        d = active_model_dir()
+        return ((d / "model.onnx").exists()
+                and (d / "model.onnx").stat().st_size >= model.min_bytes
+                and (d / "tokenizer.json").exists())
+    except Exception:
+        return False
+
+
+def _engine_yield_row() -> tuple[str, str, bool] | None:
+    """每个引擎最近一轮的产出 —— 静默降级唯一能被看见的地方。
+
+    刻意不 import 搜索层：诊断命令要在精简安装 / 半坏安装上也能跑（那时才最需要
+    看它），而 search_metasearch 会拉 primp/lxml/httpx/fake_useragent。这里只做
+    文件系统读，判据与 _classify_yield 保持同构。
+    """
+    try:
+        import json
+
+        from dhole_mcp import paths
+        path = paths.file("engine_stats.json")
+        if not os.path.exists(path):
+            return ("engine yield", "no data yet (run a search first)", True)
+        with open(path, "r", encoding="utf-8") as f:
+            stats = json.load(f)
+        if not isinstance(stats, dict) or not stats:
+            return ("engine yield", "no data yet (run a search first)", True)
+        import time as _t
+        now = _t.time()
+
+        def _num(key: str, default: float) -> float:
+            # 不能用 `st.get(k) or default`：0 在这里是**最有意义**的值（0 条可用
+            # 产出正是漂移），`or` 会把它悄悄变成"没有观测"。
+            try:
+                return float(st.get(key, default))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return default
+
+        parts: list[str] = []
+        suspect = False
+        for name in sorted(stats):
+            st = stats[name]
+            if not isinstance(st, dict):
+                continue
+            status = str(st.get("status", ""))
+            nodes = int(_num("last_nodes", -1))
+            usable = int(_num("last", -1))
+            mean = _num("mean", 0.0)
+            drift = int(_num("drift", 0))
+            if now - _num("ts", 0.0) > 3600:
+                parts.append(f"{name}: no recent run")
+                continue
+            if status in ("blocked", "circuit_open"):
+                parts.append(f"{name}: blocked/cooled")
+            elif status == "timeout":
+                parts.append(f"{name}: timeout")
+            elif status.startswith(("error", "init_error", "no_key")):
+                parts.append(f"{name}: unreachable")
+            elif status == "preempted":
+                parts.append(f"{name}: not asked")
+            elif nodes < 0:
+                parts.append(f"{name}: {usable if usable >= 0 else 0} results")
+            elif nodes > 0 and usable == 0:
+                suspect = True
+                parts.append(f"{name}: PARSER BROKEN ({nodes} item nodes, 0 usable)"
+                             + (" [confirmed]" if drift >= 2 else " [suspect]"))
+            elif nodes == 0 and usable == 0:
+                parts.append(f"{name}: 0 nodes (usually {mean:.1f}/run)" if mean >= 1
+                             else f"{name}: 0 this query")
+            else:
+                parts.append(f"{name}: {usable} usable ({mean:.1f}/run avg)")
+        if not parts:
+            return None
+        return ("engine yield", " | ".join(parts), not suspect)
+    except Exception:
+        return None
+
+
+def _append_engine_yield(caps: list[tuple[str, str, bool]]) -> None:
+    """capabilities() 有三条提前返回的分支，产出行每条都得看到。"""
+    row = _engine_yield_row()
+    if row:
+        caps.append(row)
+
+
+def capabilities() -> list[tuple[str, str, bool]]:
+    """[(label, state, ok)] for the optional capabilities that degrade silently."""
+    caps: list[tuple[str, str, bool]] = []
+
+    browser = _has_module("patchright") and _has_module("playwright")
+    caps.append((
+        "browser tier",
+        "ready (anti-bot / JS rendering / screenshot)" if browser
+        else "missing - HTTP-only (pip install 'dhole-mcp[all]', playwright install chromium)",
+        browser,
+    ))
+
+    pdf = _has_module("pdfplumber") or _has_module("pypdfium2")
+    caps.append((
+        "pdf / ocr",
+        "ready" if pdf else "missing (pip install 'dhole-mcp[all]')",
+        pdf,
+    ))
+
+    if not (_has_module("onnxruntime") and _has_module("tokenizers")):
+        caps.append(("neural rerank", "missing (pip install 'dhole-mcp[all]')", False))
+        _append_engine_yield(caps)
+        return caps
+    try:
+        from dhole_mcp.reranker import active_model, active_model_dir
+        model = active_model()
+        d = active_model_dir()
+        ready = ((d / "model.onnx").exists()
+                 and (d / "tokenizer.json").exists())
+    except Exception:
+        caps.append(("neural rerank", "config unreadable - check ~/.dhole/config/reranker.json", False))
+        _append_engine_yield(caps)
+        return caps
+    if ready:
+        caps.append((
+            "neural rerank",
+            f"ready ({model.name}: {model.label})",
+            True,
+        ))
+    else:
+        caps.append((
+            "neural rerank",
+            f"{model.name} not downloaded yet "
+            f"(~{model.approx_bytes // 1_000_000}MB, resumable; "
+            "~/.dhole/config/reranker.json switches model)",
+            False,
+        ))
+
+    pool = (os.environ.get("DHOLE_DEFAULT_ENGINES") or "").strip()
+    caps.append((
+        "search pool",
+        pool if pool
+        else "bing,duckduckgo,brave,yahoo,yandex,sogou_weixin "
+             "(default; ddg/brave/yahoo need VPN in CN)",
+        bool(pool),
+    ))
+    _append_engine_yield(caps)
+    return caps
+
+
+def print_capabilities() -> None:
+    """Print one line per optional capability. Never raises - diagnostics must
+    not be the thing that crashes when an install is half-broken."""
+    try:
+        from dhole_mcp import cli_ui as ui
+        print("  " + ui.dim("capabilities (each missing row degrades silently):"))
+        for label, state, ok in capabilities():
+            mark = ui.ok(state) if ok else ui.warn(state)
+            print("    " + label.ljust(15) + " " + mark)
+    except Exception:
+        pass
 
 

@@ -29,11 +29,12 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
+from dhole_mcp import paths
 from dhole_mcp.cache import get_cached, set_cached
 from dhole_mcp.security import validate_search_query, validate_url, redact_api_key, SecurityError
 from dhole_mcp.search_engines import (
     RawResult, multi_search, EngineReport, DEFAULT_ENGINES,
-    fetch_source_for_similar, _INDEX_FAMILY,
+    fetch_source_for_similar, _INDEX_FAMILY, _VERTICAL_BACKENDS,
 )
 
 logger = logging.getLogger("dhole-mcp.search")
@@ -199,11 +200,11 @@ class SearchResult(BaseModel):
     title: str = Field(description="Result title")
     url: str = Field(description="Result URL")
     snippet: str = Field(default="", description="Result snippet from the engine")
-    source: str = Field(default="", description="Backend(s) that returned this result (duckduckgo/brave/yahoo/yandex/wikipedia/grokipedia). Multiple = cross-backend consensus.")
+    source: str = Field(default="", description="Backend(s) that returned this result (bing/duckduckgo/brave/yahoo/yandex/sogou_weixin/wikipedia/grokipedia). Multiple = cross-backend consensus. sogou_weixin hits are weixin.sogou.com /link wrappers, not canonical article URLs.")
     position: int = Field(default=0, description="1-indexed rank after merge + rerank")
     relevance_score: float = Field(default=0.0, description="0.0-1.0 relevance to the query (neural cross-encoder score in neural mode, min-max normalized), boosted by cross-backend consensus. 1.0 = most relevant in this set.")
     fetch_relevance: str = Field(default="", description="high|med|low - relative relevance hint. smart_fetch what matches your need; the tiers rank results but a lower tier can be the right one - use your judgment.")
-    engines_consensus: str = Field(default="", description="How many independent indexes returned this URL (e.g. '3 of 4'). A free authority signal: a URL returned by several independent engines is more likely authoritative.")
+    engines_consensus: str = Field(default="", description="How many independent index families returned this URL over how many could have (e.g. '2 of 4'; the default 6-engine pool is only 4 families since bing/duckduckgo/yahoo share one index). '1 of 1 (no corroboration)' means a single family contributed at all - that is a degraded or tiny pool, NOT agreement. A free authority signal only when the denominator is >1.")
     source_type: str = Field(default="", description="Source type from URL pattern: docs|paper|repo|blog|forum|reference|news|other. Helps pick the right source.")
 
 
@@ -212,8 +213,11 @@ class SearchResponseModel(BaseModel):
     results: list[SearchResult] = Field(description="Ranked search results (URLs + ranking, not page content)")
     total_results: int = Field(default=0, description="Results returned")
     engines_used: list[str] = Field(default=[], description="Engines that returned results")
-    engine_blocked: list[str] = Field(default=[], description="Engines that did NOT contribute (rate-limited/CAPTCHA'd/timed out/parsed no results). Results still came from engines_used; retry shortly for more recall.")
+    engine_blocked: list[str] = Field(default=[], description="Engines that were rate-limited / CAPTCHA'd / timed out / errored - they could not answer. See engine_empty for the different case of an engine that DID answer but yielded nothing usable.")
+    engine_empty: list[str] = Field(default=[], description="Engines that answered (HTTP 200) but parsed zero usable results. NOT rate-limiting: either this query genuinely has nothing in that index, or that engine's parser has drifted out of sync with its page structure. Cross-check the 'engine yield' row of `dhole -v`.")
+    engine_preempted: list[str] = Field(default=[], description="Engines cancelled because enough results had already arrived. Normal on a healthy fast pool - this is NOT a failure or a block.")
     rerank_mode: str = Field(default="merge", description="Rerank used: merge|neural|find_similar.")
+    consensus_basis: str = Field(default="", description="Whether engines_consensus can be trusted on this response: full | single_family | partial_pool | degraded_pool. 'degraded_pool' = at least one engine didn't answer, so a low consensus number may reflect the pool being down rather than the URL being weak. 'single_family' = no corroboration was possible at all.")
     cached: bool = Field(default=False, description="Served from cache?")
     duration_ms: float = Field(default=0, description="Duration ms")
     error: str = Field(default="", description="Error message (empty = ok)")
@@ -394,12 +398,17 @@ def _search_summary(query: str, results: list[SearchResult], engines_used: list[
 
 
 def _search_next_action(results: list[SearchResult], engine_blocked: list[str],
-                         error: str, engines_used: list[str] | None = None) -> str:
+                         error: str, engines_used: list[str] | None = None, *,
+                         engine_empty: list[str] | None = None,
+                         engine_preempted: list[str] | None = None,
+                         total_engines: int | None = None) -> str:
     """A judgment-empowering nudge, not a rigid directive. The ranking is a HINT:
     the agent may legitimately need a lower-ranked result, so we point it at the
     signals (relevance_score + fetch_relevance) and trust it to pick, instead of
     prescribing 'fetch N'. This avoids the LLM stressing over whether to 'break'
     the instruction when a lower-ranked result is the one it actually needs."""
+    engine_empty = engine_empty or []
+    engine_preempted = engine_preempted or []
     if not results:
         if error and ("rate-limited" in error.lower() or "timed out" in error.lower() or engine_blocked):
             return ("No results (engines rate-limited/timed out). Retry in a moment, "
@@ -411,14 +420,22 @@ def _search_next_action(results: list[SearchResult], engine_blocked: list[str],
             "not a directive; a lower-ranked result can be the right one, so trust your judgment.")
     if not high:
         base += " No 'high' matches - if none of these fit, rephrase (more specific) or try mode=neural."
-    if engine_blocked:
-        total_engines = len(engine_blocked) + len(engines_used or [])
-        blocked_ratio = len(engine_blocked) / max(1, total_engines)
+    # 分母要算上 empty：只看 blocked 时，"5 个引擎里 4 个解析器坏了"会被读成
+    # 1/1 = 健康，多样性警告永远不触发。
+    silent = [n for n in engine_blocked if n] + [n for n in engine_empty if n]
+    silent = list(dict.fromkeys(silent))
+    if total_engines is None:
+        total_engines = len(silent) + len(engine_preempted) + len(engines_used or [])
+    if silent:
+        blocked_ratio = len(silent) / max(1, total_engines)
         if blocked_ratio >= 0.6:
-            base += (f" WARNING: {len(engine_blocked)} of {total_engines} "
-                    f"engines were rate-limited/blocked - results have LOW diversity "
-                    f"(only from {', '.join(engines_used or ['unknown'])}). "
-                    f"For better recall: set DHOLE_SEARCH_PROXY, retry in 60s, or rephrase the query.")
+            base += (f" WARNING: {len(silent)} of {total_engines} engines didn't contribute"
+                     + (f" ({len(engine_blocked)} blocked"
+                        + (f", {len(engine_empty)} answered but parsed nothing usable" if engine_empty else "")
+                        + ")" if engine_blocked else " (parsed nothing usable)")
+                     + f" - results have LOW diversity "
+                       f"(only from {', '.join(engines_used or ['unknown'])}). "
+                       f"For better recall: set DHOLE_SEARCH_PROXY, retry in 60s, or rephrase the query.")
         else:
             base += " Some engines didn't contribute; retry shortly for more recall."
     return base
@@ -493,23 +510,96 @@ def _rank(query: str, ranked: list[RawResult], mode: str):
 
     mode='auto'/'neural': use the local ONNX cross-encoder if available
     (dhole-mcp[all] + model cached), else fall back to cross-engine consensus +
-    engine-position order (no lexical rerank). 'neural' surfaces a note when
-    unavailable; 'auto' is silent (expected on lean installs).
+    engine-position order (no lexical rerank). 'neural' always surfaces a note.
+    'auto' stays silent on a lean install (that's the expected shape, and saying
+    so on every response would be noise), but it does report the surprising case:
+    deps present and the model still missing or failing to load.
     """
     note = ""
     if mode in ("neural", "auto"):
         pairs = neural_rerank(query, ranked)
         if pairs is not None:
             return [r for r, _ in pairs], [s for _, s in pairs], "neural", note
+        reason = unavailable_reason() or "install dhole-mcp[all] and retry"
         if mode == "neural":
-            note = ("neural rerank unavailable - using consensus + engine-position order. " +
-                    (unavailable_reason() or "install dhole-mcp[all] and retry"))
+            note = "neural rerank unavailable - using consensus + engine-position order. " + reason
+        elif not reason.startswith("neural rerank needs dhole-mcp[all]"):
+            # 依赖装了却仍然没有重排 = 模型没下下来或加载失败，这是该被看到的
+            note = ("neural rerank is NOT active despite its deps being installed "
+                    f"- using consensus + engine-position order. {reason}")
     # Fallback (lean install / model missing): no lexical rerank. Score by position
     # so tiers derive sensibly; the caller's consensus boost adds the authority
     # signal on top.
+    # 顺序先按"覆盖面"分层：垂直索引（只覆盖某一类内容，如 sogou_weixin 的公众号）
+    # 排到通用网络索引之后。没有相关性模型可问时，唯一能用的先验是"通用索引对任意
+    # 查询都更可能相关"；而垂直索引响应最快（实测 0.2-0.9s vs bing 1.3s/yandex 3.1s），
+    # 纯按完成顺序会把它的结果顶到最前。被通用引擎也返回过的 URL 不算垂直（有佐证）。
+    ranked = _general_first(ranked)
     n = len(ranked)
     scores = [1.0 - (i / max(n, 1)) for i in range(n)]
     return list(ranked), scores, "merge", note
+
+
+def _general_first(ranked: list[RawResult]) -> list[RawResult]:
+    """稳定分层：非垂直（或与通用引擎共识）的结果在前，纯垂直结果在后。"""
+    def _vertical_only(r: RawResult) -> bool:
+        srcs = tuple(r.sources) if r.sources else ((r.source,) if r.source else ())
+        return bool(srcs) and all(s in _VERTICAL_BACKENDS for s in srcs)
+
+    return [r for r in ranked if not _vertical_only(r)] + [r for r in ranked if _vertical_only(r)]
+
+
+def _family_universe(engines: Optional[list[str]],
+                     reports: list[EngineReport]) -> tuple[int, int, str]:
+    """(共识分母, 实际贡献的家族数, 依据) — engines_consensus 的可信度底座。
+
+    分母是"本轮本该表态的独立索引家族数"，不是"实际返回了结果的家族数"。用后者
+    会因为降级而说谎：4 个家族 empty/被墙、只剩 1 个活着时，那 1 个的每条结果都
+    显示 "1 of 1"，与"全员一致"在字符串上完全不可区分。
+    全家被 preempted（根本没轮到回答）的家族从分母里扣掉 —— 它没机会表态，把它算
+    进分母是另一种夸大。
+    """
+    names = list(engines) if engines else list(DEFAULT_ENGINES)
+    universe = {_INDEX_FAMILY.get(n, n) for n in names}
+    by_family: dict[str, list[EngineReport]] = {}
+    for r in reports:
+        by_family.setdefault(_INDEX_FAMILY.get(r.name, r.name), []).append(r)
+    dropped = 0
+    for fam in sorted(universe):
+        got = by_family.get(fam, [])
+        if got and all(r.preempted for r in got):
+            universe.discard(fam)
+            dropped += 1
+    contributing = {f for f, got in by_family.items() if f in universe and any(r.ok for r in got)}
+    m = max(1, len(universe))
+    c = len(contributing)
+    if any(r.blocked for r in reports):
+        basis = "degraded_pool"
+    elif c <= 1:
+        basis = "single_family"
+    elif dropped:
+        basis = "partial_pool"
+    else:
+        basis = "full"
+    return m, c, basis
+
+
+def _pool_health_notes(results: list[SearchResult], engine_blocked: list[str],
+                       contributing: int) -> str:
+    """降级池的两条诚实标注。live 与缓存命中两条路径共用。
+
+    以前只有 live 路径往 fetch_hint 上追加，TTL 内的重复查询（agent 的常态）一条
+    提示都不带 —— 同一份降级结果，第二次问就被包装成干净结果。
+    """
+    if not (results and engine_blocked):
+        return ""
+    notes = [f"Engines {', '.join(engine_blocked)} didn't contribute (rate-limited/timed out/"
+             f"no results); results are from the rest - retry shortly for more recall."]
+    if contributing <= 1:
+        notes.append(f"LOW CONFIDENCE: only {max(1, contributing)} index family contributed "
+                     f"({len(engine_blocked)} engines blocked). Cross-engine consensus is "
+                     f"unavailable - verify results via smart_fetch before relying on them.")
+    return " | ".join(notes)
 
 
 def _build_results(query: str, ranked: list[RawResult], scores: Optional[list[float]] = None,
@@ -520,7 +610,10 @@ def _build_results(query: str, ranked: list[RawResult], scores: Optional[list[fl
     for i, r in enumerate(ranked):
         score = scores[i] if scores and i < len(scores) else 0.0
         src = ",".join(r.sources) if r.sources else (r.source or "")
-        consensus = f"{max(1, getattr(r, 'consensus', 1))} of {max(1, total_families)}"
+        m = max(1, total_families)
+        n = min(max(1, getattr(r, "consensus", 1)), m)
+        # 只有一个家族时没有"佐证"可报告 —— 不再伪装成一个比率。
+        consensus = f"{n} of {m}" if m > 1 else "1 of 1 (no corroboration)"
         out.append(SearchResult(
             title=r.title, url=r.url, snippet=r.snippet, source=src,
             position=i + 1, relevance_score=round(score, 4),
@@ -593,7 +686,7 @@ def _query_terms(query: str) -> set:
 
 
 def _domain_boost(url: str, query: str, is_technical: bool) -> float:
-    """Boost authoritative domains. +0.15 tech domains, +0.05 reference, +0.05 feedback. Not a blocklist."""
+    """Boost authoritative domains. +0.15 tech domains, +0.05 reference, +0.05 feedback (opt-in). Not a blocklist."""
     host = _get_domain(url)
     if not host:
         return 0.0
@@ -607,15 +700,37 @@ def _domain_boost(url: str, query: str, is_technical: bool) -> float:
             boost += 0.08
     if _matches(_REFERENCE_DOMAINS):
         boost += 0.05
-    # Feedback boost: domains the agent previously found useful
-    if host in _feedback_domains():
+    # Feedback boost: domains the agent previously found useful (opt-in only —
+    # DHOLE_SEARCH_FEEDBACK=1; off by default, see the section comment below).
+    if _feedback_enabled() and host in _feedback_domains():
         boost += 0.05
     return boost
 
 
 # ─── search feedback (implicit domain preference learning) ───────────────────
+#
+# OFF by default (DHOLE_SEARCH_FEEDBACK=1 opts in). It is a persistent ranking
+# mutation with no quality signal behind it: record_search_feedback() fires
+# whenever a top result is successfully fetched with fetch_content=true, and
+# every such domain keeps a +0.05 boost for the life of the file (500 domains),
+# reinforcing itself over time. That silently rewrites the cross-engine
+# consensus ordering the user thinks they are seeing, and it writes state the
+# user never asked for.
 
-_FEEDBACK_FILE = os.path.join(os.path.expanduser("~"), ".dhole", "search_feedback.json")
+def _feedback_file() -> str:
+    """惰性取路径，与 metasearch 的两个状态文件同一约定。
+
+    import 期常量的话，`DHOLE_HOME` 就只对部分状态文件生效（半失效的开关比没有更
+    糟），测试也指不动它。
+    """
+    return str(paths.file("search_feedback.json"))
+
+
+def _feedback_enabled() -> bool:
+    """True only when the user opted in with DHOLE_SEARCH_FEEDBACK=1."""
+    return (os.environ.get("DHOLE_SEARCH_FEEDBACK") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 _feedback_cache: Optional[frozenset] = None
 _feedback_mtime: float = 0.0
 
@@ -624,15 +739,17 @@ def _feedback_domains() -> frozenset:
     """Load domains the agent found useful (from fetch_content successes).
     Cached in memory; re-reads file only if modified."""
     global _feedback_cache, _feedback_mtime
+    if not _feedback_enabled():
+        return frozenset()
     try:
         import os as _os
-        if not _os.path.exists(_FEEDBACK_FILE):
+        if not _os.path.exists(_feedback_file()):
             return frozenset()
-        mt = _os.path.getmtime(_FEEDBACK_FILE)
+        mt = _os.path.getmtime(_feedback_file())
         if _feedback_cache is not None and mt == _feedback_mtime:
             return _feedback_cache
         import json as _json
-        with open(_FEEDBACK_FILE, "r") as f:
+        with open(_feedback_file(), "r") as f:
             data = _json.load(f)
         _feedback_cache = frozenset(data.get("domains", []))
         _feedback_mtime = mt
@@ -643,29 +760,32 @@ def _feedback_domains() -> frozenset:
 
 def record_search_feedback(url: str) -> None:
     """Record a domain as useful (called when fetch_content successfully fetches a page).
-    Best-effort, never raises. Atomic write."""
+    Best-effort, never raises. Atomic write. No-op unless DHOLE_SEARCH_FEEDBACK=1
+    (see the section comment above: the boost is opt-in)."""
+    if not _feedback_enabled():
+        return
     try:
         domain = _get_domain(url)
         if not domain:
             return
         import json as _json
         import tempfile
-        os.makedirs(os.path.dirname(_FEEDBACK_FILE), exist_ok=True)
+        os.makedirs(os.path.dirname(_feedback_file()), exist_ok=True)
         # Load existing
         domains = set()
-        if os.path.exists(_FEEDBACK_FILE):
-            with open(_FEEDBACK_FILE, "r") as f:
+        if os.path.exists(_feedback_file()):
+            with open(_feedback_file(), "r") as f:
                 domains = set(_json.load(f).get("domains", []))
         domains.add(domain)
         # Cap at 500 domains
         if len(domains) > 500:
             domains = set(list(domains)[-500:])
         # Atomic write
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(_FEEDBACK_FILE), suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(_feedback_file()), suffix=".tmp")
         try:
             with os.fdopen(fd, "w") as f:
                 _json.dump({"domains": sorted(domains)}, f)
-            os.replace(tmp, _FEEDBACK_FILE)
+            os.replace(tmp, _feedback_file())
         except Exception:
             try:
                 os.unlink(tmp)
@@ -803,22 +923,40 @@ def _expand_query(query: str, intent: str) -> str:
     return query + " " + " ".join(new_terms)
 
 
+_CORE_QUERY_ENGINES = frozenset({"bing", "duckduckgo", "brave", "yahoo", "sogou_weixin"})
+"""这些引擎拿**原始** query，其余拿展开后的变体。
+
+原先这个集合写的是 {duckduckgo, brave, mojeek, yahoo}：mojeek 从来没在本项目里存在过
+（docstring 里的 startpage/google/qwant 同样不存在），而 bing 既是默认池首位又是国内
+免 VPN 的两个入口之一，却因为不在集合里而成了**唯一被改写提问**的默认引擎。集合是手
+工维护的、引擎列表改了它不会跟着改 —— 这是本仓库第三次踩同一类"两处定义漂移"。
+
+sogou_weixin 也在核心集合里：_INTENT_EXPANSIONS 只有两串**英文**词（" paper arxiv
+benchmark results" / " specifications table data parameters"），而它的索引几乎全是
+中文公众号文章 —— 把英文术语追加进去只会让它更搜不到东西。
+
+注意一个已知局限（不在本次修）：不同引擎被问不同 query 时，URL 重合度里混进了"跨
+query 变体也重合"这一层（见 _expand_query 上方注释，那是有意设计的好处，但也确实如
+此）。engines_consensus 的分母已经如实反映池子健康度，这个语义残留留在此处说明。
+"""
+
+
 def _generate_query_map(query: str, intent: str, engines: list[str] | None) -> dict[str, str]:
     """Assign per-engine query variants for multi-query fan-out.
 
-    Core engines (DDG, Brave, Mojeek, Yahoo) get the original query; diversity
-    engines (Yandex, Startpage, Google, Qwant) get the expanded query. Returns {}
-    if no expansion applies (all engines get the same query = backward-compatible).
+    Core engines (bing, duckduckgo, brave, yahoo, sogou_weixin) get the original
+    query; diversity engines (yandex, and the opt-in wikipedia/grokipedia) get
+    the expanded query. Returns {} if no expansion applies (all engines get the
+    same query = backward-compatible).
     """
     expanded = _expand_query(query, intent)
     if expanded == query:
         return {}
-    core = {"duckduckgo", "brave", "mojeek", "yahoo"}
     engs = engines or []
     query_map: dict[str, str] = {}
     for eng in engs:
         # Map dhole engine name to its backend name before matching.
-        query_map[eng] = query if eng in core else expanded
+        query_map[eng] = query if eng in _CORE_QUERY_ENGINES else expanded
     return query_map
 
 
@@ -869,12 +1007,17 @@ async def smart_search(
     freshness: Optional[str] = None,
 ) -> SearchResponseModel:
     """Local keyless web search (no API key, no account). The default pool
-    (duckduckgo, brave, yahoo, yandex - four independent indexes, all HTTP,
-    no browser; add 'wikipedia' or 'grokipedia')
-    is scraped in parallel, merged, deduped, and ranked. A URL returned
-    by several independent engines is a consensus hit (engines_consensus field) and
-    gets a ranking boost - a free authority signal. Returns URLs + ranking (NOT
-    page content) so the agent smart_fetches the ones it wants itself.
+    (bing, duckduckgo, brave, yahoo, yandex, sogou_weixin - all HTTP, no browser;
+    opt-in: wikipedia, grokipedia) is scraped in parallel, merged, deduped,
+    and ranked. A URL returned by several **independent index families** is a
+    consensus hit (engines_consensus field) and gets a ranking boost - a free
+    authority signal. Note the pool has 6 engines but only 4 families
+    (bing/duckduckgo/yahoo all sit on Bing's index), so '4 of 4' is the max.
+    sogou_weixin is a vertical (WeChat-articles-only) index: relevance decides its
+    place when the reranker runs, and without one it is demoted behind the
+    general-web engines (see _general_first).
+    Returns URLs + ranking (NOT page content) so the agent smart_fetches the
+    ones it wants itself.
 
     mode: auto (neural rerank if [all]+model present, else consensus + engine-
     position order), neural (same, explicit - surfaces a note if unavailable),
@@ -936,19 +1079,33 @@ async def smart_search(
                 results_list = [SearchResult(**r) for r in data.get("results", [])]
                 _eu = data.get("engines_used", [])
                 _eb = data.get("engine_blocked", [])
+                _ee = data.get("engine_empty", [])
+                _ep = data.get("engine_preempted", [])
                 _rm = data.get("rerank_mode", "merge")
                 _rq = data.get("related_queries", [])
+                # Rows written before consensus_basis existed fall back to
+                # "whatever contributed" — i.e. the old behavior, not a guess.
+                _fam = {_INDEX_FAMILY.get(e, e) for e in _eu}
+                _contrib_c = data.get("families_contributing", len(_fam) or 1)
+                _hint = compute_fetch_hint(results_list)
+                _notes = _pool_health_notes(results_list, _eb + _ee, _contrib_c)
+                if _notes:
+                    _hint = (f"{_hint} | {_notes}" if _hint else _notes)
                 return SearchResponseModel(
                     query=cache_query, results=results_list,
                     total_results=len(results_list), cached=True,
                     engines_used=_eu,
                     engine_blocked=_eb,
+                    engine_empty=_ee,
+                    engine_preempted=_ep,
                     rerank_mode=_rm,
+                    consensus_basis=data.get("consensus_basis", ""),
                     related_queries=_rq,
                     duration_ms=(time() - t0) * 1000,
-                    fetch_hint=compute_fetch_hint(results_list),
+                    fetch_hint=_hint,
                     summary=_search_summary(cache_query, results_list, _eu, _rm),
-                    next_action=_search_next_action(results_list, _eb, "", _eu),
+                    next_action=_search_next_action(results_list, _eb, "", _eu,
+                                                    engine_empty=_ee, engine_preempted=_ep),
                 )
             except (json.JSONDecodeError, KeyError, TypeError) as e:
                 logger.warning(f"Corrupt search cache for '{cache_query[:50]}': {e}")
@@ -1010,8 +1167,7 @@ async def smart_search(
             if ranked and get_reranker() is None:
                 rerank_note = ("find_similar used consensus + position order (neural unavailable). " +
                                (unavailable_reason() or "install dhole-mcp[all]"))
-        _efams = {_INDEX_FAMILY.get(r.name, r.name) for r in reports if r.ok}
-        total_families = len(_efams) or 1
+        total_families, _contrib, _basis = _family_universe(engines, reports)
         ranked_list, scores = _apply_quality_boost(ranked_list, scores, query)
         ranked_list, scores = ranked_list[:max_results], scores[:max_results]
         results_list = _build_results(cache_query, ranked_list, scores, total_families)
@@ -1041,16 +1197,29 @@ async def smart_search(
         if not ranked and not error:
             blocked_any = bool([r for r in reports if r.blocked])
             all_blocked = blocked_any and not bool([r for r in reports if r.ok])
+            # 池子"全沉默"（都答了、都没产出）时，坏的是解析器还是查询，用产出计数分：
+            # item_nodes>0 而 usable==0 = 结果容器还在、子元素 xpath 已经错位 = 我们的
+            # 问题 —— 对同一批坏掉的解析器再打一轮全量 fan-out，只会在上游正改版的那天
+            # 把请求量翻倍。全部 0 容器则更像查询太窄，改写救回原样保留（窄查询的召回
+            # 不能因为这次"让降级可见"的修复而退化）。
+            drifted = [r.name for r in reports if r.item_nodes > 0 and r.usable == 0]
+            all_silent = bool(reports) and not any(r.ok or r.blocked for r in reports)
+            probe = [r.name for r in reports if r.name not in drifted]
+            skip_retry = all_silent and bool(drifted) and not probe
             # Auto query rewrite: when zero results, try a simplified query.
             # Always try when site filter is set (site may not exist);
             # otherwise only try when NOT all engines are blocked.
-            should_rewrite = (not all_blocked) or (site is not None)
+            should_rewrite = ((not all_blocked) or (site is not None)) and not skip_retry
             if should_rewrite:
                 rewritten = _rewrite_query(query)
                 if rewritten and rewritten != query:
                     try:
                         ranked2, reports2 = await multi_search(
-                            rewritten, max_results, engines=engines, site=None,
+                            rewritten, max_results,
+                            # 部分引擎坏了就只问还活着的那些，别再全员陪跑。
+                            engines=(list(probe) if (all_silent and drifted and probe)
+                                     else engines),
+                            site=None,
                             exclude_sites=exclude_sites, region=region,
                             freshness=freshness, page=page, server=server,
                         )
@@ -1064,11 +1233,19 @@ async def smart_search(
                     except Exception:
                         pass
             if not ranked and not error:
-                error = (
-                    "No results from any engine. " +
-                    ("Engines were rate-limited/CAPTCHA'd; retry in a moment, rephrase, or set DHOLE_SEARCH_PROXY for sustained heavy use. "
-                     if blocked_any else "Try rephrasing the query.")
-                )
+                if skip_retry:
+                    error = (
+                        f"Engines answered but parsed 0 usable results ({', '.join(drifted)} "
+                        "saw result containers it could not read). That is usually our parser "
+                        "falling out of sync with the engine's page structure, not the query "
+                        "being wrong - no second round was issued. Run `dhole -v` for "
+                        "per-engine yield, or rephrase with different terms.")
+                else:
+                    error = (
+                        "No results from any engine. " +
+                        ("Engines were rate-limited/CAPTCHA'd; retry in a moment, rephrase, or set DHOLE_SEARCH_PROXY for sustained heavy use. "
+                         if blocked_any else "Try rephrasing the query.")
+                    )
 
         if _rerank_task:
             try:
@@ -1076,8 +1253,7 @@ async def smart_search(
             except Exception:
                 pass
         ranked_list, scores, rerank_used, rerank_note = _rank(query, ranked[:max(2 * max_results, 12)], mode)
-        _efams = {_INDEX_FAMILY.get(r.name, r.name) for r in reports if r.ok}
-        total_families = len(_efams) or 1
+        total_families, _contrib, _basis = _family_universe(engines, reports)
         ranked_list, scores = _apply_quality_boost(ranked_list, scores, query)
         # Diversity: cap same-domain results at 2 in top positions
         if not site:
@@ -1091,28 +1267,24 @@ async def smart_search(
             fetch_hint = (fetch_hint + " | " + rerank_note) if fetch_hint else rerank_note
         main_related = _related_queries(query, results_list)
 
-    # engines_used = contributed; engine_blocked = did NOT contribute (blocked /
-    # timed out / parsed no results / consent page). Surfacing non-contributing
-    # engines means an opt-in engine like google that CAPTCHAs is visible to the
-    # agent (in engine_blocked), not silently absent from both lists.
+    # engines_used = contributed. 没贡献的引擎分成三类，各自含义不同：
+    #   engine_blocked    拒答/被墙/超时/出错（含构造失败、缺 key）
+    #   engine_empty      答了但解析出 0 条可用 —— 查询真没结果，或解析器漂移
+    #   engine_preempted  够数了被取消，健康快池的正常现象
+    # 此前只有 blocked 可见：empty 的 ok/blocked 都是 False，于是它同时不在任何
+    # 列表里，解析器坏了与"这个查询确实没东西"在响应上完全同形。
     engines_used = list(dict.fromkeys(r.name for r in reports if r.ok))
     engine_blocked = list(dict.fromkeys(r.name for r in reports if r.blocked))
+    engine_empty = list(dict.fromkeys(r.name for r in reports if r.status == "empty"))
+    engine_preempted = list(dict.fromkeys(r.name for r in reports if r.preempted))
+    not_contributing = engine_blocked + engine_empty
 
-    # Agent QoL: when some engines didn't contribute but results came back from
-    # the rest, say so plainly so the agent knows the results are partial + a
-    # retry may add recall (instead of looking like a failure).
-    if engine_blocked and results_list:
-        _blk_note = (f"Engines {', '.join(engine_blocked)} didn't contribute (rate-limited/timed out/no results); "
-                     f"results are from the rest - retry shortly for more recall.")
-        fetch_hint = (fetch_hint + " | " + _blk_note) if fetch_hint else _blk_note
-
-    # Low-confidence warning: when only 1 index family contributed and others
-    # were blocked, cross-engine consensus is unavailable — tell the agent.
-    if total_families <= 1 and engine_blocked and results_list:
-        _low_conf = ("LOW CONFIDENCE: only 1 index family contributed "
-                     f"({len(engine_blocked)} engines blocked). Cross-engine consensus "
-                     "is unavailable - verify results via smart_fetch before relying on them.")
-        fetch_hint = (fetch_hint + " | " + _low_conf) if fetch_hint else _low_conf
+    # Pool-health notes (partial pool / no corroboration). Same helper the cache
+    # hit uses, so a repeated query inside the TTL reports the same thing a fresh
+    # one does.
+    _notes = _pool_health_notes(results_list, not_contributing, _contrib)
+    if _notes:
+        fetch_hint = (fetch_hint + " | " + _notes) if fetch_hint else _notes
 
     # Cache successful results (+ engine metadata + related queries for cache hits)
     if cache_ttl > 0 and results_list:
@@ -1121,18 +1293,26 @@ async def smart_search(
             "results": [r.model_dump() for r in results_list],
             "engines_used": engines_used,
             "engine_blocked": engine_blocked,
+            "engine_empty": engine_empty,
+            "engine_preempted": engine_preempted,
             "rerank_mode": rerank_used,
             "related_queries": _rq_cache,
+            "consensus_basis": _basis,
+            "family_universe": total_families,
+            "families_contributing": _contrib,
         })
         await set_cached(cache_query, cache_type, [cache_data], 200, None, cache_ttl, scope="search")
 
     return SearchResponseModel(
         query=cache_query, results=results_list, total_results=len(results_list),
         engines_used=engines_used, engine_blocked=engine_blocked,
-        rerank_mode=rerank_used,
+        engine_empty=engine_empty, engine_preempted=engine_preempted,
+        rerank_mode=rerank_used, consensus_basis=_basis,
         related_queries=(sim_related if mode == "find_similar" else main_related),
         duration_ms=(time() - t0) * 1000, error=error,
         fetch_hint=fetch_hint,
         summary=_search_summary(cache_query, results_list, engines_used, rerank_used),
-        next_action=_search_next_action(results_list, engine_blocked, error, engines_used),
+        next_action=_search_next_action(results_list, engine_blocked, error, engines_used,
+                                        engine_empty=engine_empty,
+                                        engine_preempted=engine_preempted),
     )

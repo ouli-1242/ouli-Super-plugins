@@ -58,6 +58,9 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-mock>=3.14",
     "ruff>=0.6",
+    # 仅测试用：tests/test_pdf_real.py 现场生成加密 PDF 样本（不往仓库里塞二进制件）。
+    # 运行时不需要它 —— PDF 提取走 pdfplumber（见 all extra）。
+    "pypdf>=5.0",
 ]
 all = [
     # Browser deps (patchright for anti-detect browser, playwright for JS
@@ -95,7 +98,7 @@ build-backend = "hatchling.build"
 path = "src/dhole_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dhole_mcp", "src/hound_mcp"]
+packages = ["src/dhole_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -104,9 +107,11 @@ testpaths = ["tests"]
 # silently runs the stale installed copy and src/ edits go untested. This has
 # bitten the project 4+ times. pythonpath (pytest 7+) wins over install.
 pythonpath = ["src"]
-addopts = ["-m", "not e2e"]
+addopts = ["-m", "not e2e and not live"]
 markers = [
     "e2e: end-to-end tests that spawn a real dhole.exe subprocess. Skip by default in CI; run manually with `pytest -m e2e`.",
+    "real_state_paths: opt out of the autouse state-file isolation; the test asserts where paths.py resolves state files, so redirecting them would make it verify nothing.",
+    "live: tests that hit the real search engines. Never in the default run; opt in with `-m live` and additionally pass --engine-fixtures. Used to capture/diff SERP fixtures.",
 ]
 
 [tool.ruff]

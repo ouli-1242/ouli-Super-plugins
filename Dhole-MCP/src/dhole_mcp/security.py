@@ -5,7 +5,9 @@ and safe defaults for all external-facing parameters.
 """
 
 import ipaddress
+import os
 import re
+import time
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -62,13 +64,170 @@ class SecurityError(ValueError):
 
 
 def _dns_recheck_enabled() -> bool:
-    """是否开启域名 DNS 解析内网复查（DHOLE_SSRF_DNS_RECHECK=1）。
+    """是否开启域名 DNS 解析内网复查。
 
-    默认关闭：DNS 污染/分流环境（公网域名被解析到保留地址）会误伤合法请求。
-    模块启动时读取一次并缓存。
+    默认**开启**（fail-closed）：这个工具的输入是 agent 从不受信任来源拿到的
+    URL，"公网域名指向 127.0.0.1 / 169.254.169.254 / 内网段" 是 SSRF 的主路径。
+    两点例外都对着"误伤"设计：hosts 文件里显式钉住的域名放行（那是本机用户的
+    故意决定，攻击者改不了你的 hosts 文件，见 ``_hosts_file_pin``）；
+    ``DHOLE_SSRF_DNS_RECHECK=0`` 可整体关闭 —— DNS 污染/分流环境（公网域名被
+    解析到保留地址且未写进 hosts）下合法公网请求会被误伤。
     """
-    import os
-    return os.environ.get("DHOLE_SSRF_DNS_RECHECK", "").strip() in ("1", "true", "True")
+    raw = (os.environ.get("DHOLE_SSRF_DNS_RECHECK") or "").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+# DNS 复查结果短缓存：一次抓取会对初始 URL + 每一跳重定向各调一次
+# validate_url，而 validate_url 会从异步路径被调用 —— 不能每跳都做一次
+# 阻塞式解析。被判定为内网的答案缓存久一点（重试时快速失败），放行的答案
+# 只缓存几秒（覆盖一条重定向链，又不至于把 DNS rebinding 的 TOCTOU 窗口
+# 拉长）。无论如何这只是纵深防御，不是唯一防线。
+_DNS_BLOCK_TTL = 300.0
+_DNS_ALLOW_TTL = 5.0
+_DNS_CACHE_MAX = 1024
+_DNS_CHECK_CACHE: dict[str, tuple[float, str | None]] = {}
+
+
+def _hosts_file_path() -> str:
+    """Path of the OS hosts file."""
+    if os.name == "nt":
+        root = os.environ.get("SystemRoot") or r"C:\Windows"
+        return os.path.join(root, "System32", "drivers", "etc", "hosts")
+    return "/etc/hosts"
+
+
+_hosts_cache: tuple[float, dict[str, str]] | None = None
+
+
+def _hosts_file_pin(hostname: str) -> str | None:
+    """Return the IP the OS hosts file pins `hostname` to, else None.
+
+    A hosts-file entry is a DELIBERATE local decision — ad/tracker blockers,
+    mirrors, split-horizon overrides and (on many CN desktops) plain
+    "don't let this resolve" pins. They look exactly like an attacker's DNS
+    answer, so with the recheck on they must not be read as one: an attacker
+    cannot write your hosts file, so honoring the pin keeps the protection where
+    it matters while not breaking a machine that Google-DNS-blocks some domains
+    on purpose.
+
+    Parsed once per file change (mtime), never raises.
+    """
+    global _hosts_cache
+    try:
+        path = _hosts_file_path()
+        mtime = os.path.getmtime(path)
+        if _hosts_cache is not None and _hosts_cache[0] == mtime:
+            table = _hosts_cache[1]
+        else:
+            table: dict[str, str] = {}
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.split("#", 1)[0].strip()
+                    if not line:
+                        continue
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    ip = parts[0]
+                    for name in parts[1:]:
+                        table[name.rstrip(".").lower()] = ip
+            _hosts_cache = (mtime, table)
+            _hosts_cache_reset_dns()
+        return table.get(hostname.rstrip(".").lower())
+    except Exception:
+        return None
+
+
+def _hosts_cache_reset_dns() -> None:
+    """Drop DNS verdicts when the hosts file changes (it changes the answers)."""
+    _DNS_CHECK_CACHE.clear()
+
+
+def url_targets_internal(url: str, allow_internal: bool = False) -> bool:
+    """这个 URL 是否指向内网 / 回环 / 元数据端点。不抛异常，只答是或否。
+
+    刻意复用 validate_url 本体而不是另写一份判定：内网判据已经有 IP 字面量、八/十
+    六进制变体、IPv4-mapped、被拦主机名表、DNS 复查五层，复制一份必然和原件漂移 ——
+    而调用方（tcp_preflight 的裸 socket、浏览器的落地 URL 复校验）要的正是"和主路径
+    同一个答案"。代价是畸形 URL 也算"是"（宁可拒掉裸连接）。
+    """
+    try:
+        validate_url(url, allow_internal=allow_internal)
+        return False
+    except SecurityError:
+        return True
+    except Exception:
+        # 解析不了的东西不该被当成"安全的内网目标"放过去做直连。
+        return True
+
+
+def _is_blackhole_pin(ip: str) -> bool:
+    """hosts 里的"黑洞"钉位：0.0.0.0 / :: 这一类"哪儿也不去"的占位地址。
+
+    它们作为**连接目标**时并不什么都不做 —— Windows 与 macOS 的栈把 0.0.0.0 当回环
+    处理，Linux 上则多半直接失败 —— 所以"钉到 0.0.0.0"的屏蔽语义在至少两个平台上
+    其实是"钉到本机"。判据用 is_unspecified，覆盖 0.0.0.0 / :: / ::0 / 0::0；
+    裸 "0" 不是 hosts 文件里会出现的写法，ipaddress 也不接受，故不特殊处理。
+    """
+    try:
+        return ipaddress.ip_address((ip or "").strip()).is_unspecified
+    except ValueError:
+        return False
+
+
+def _resolves_to_internal(hostname: str) -> str | None:
+    """Return a description of the internal address `hostname` resolves to, else None.
+
+    A hosts-file pin short-circuits the check (see ``_hosts_file_pin``).
+    Resolution failure (gaierror/timeout) is tolerated — treated as "not
+    internal" — so an offline or polluted resolver does not turn into a hard
+    error for every URL.
+    """
+    now = time.monotonic()
+    cached = _DNS_CHECK_CACHE.get(hostname)
+    if cached is not None and now < cached[0]:
+        return cached[1]
+
+    pin = _hosts_file_pin(hostname)
+    if pin is not None:
+        # 豁免要看钉到**哪个值**，不能只看"在不在 hosts 里"。广告/跟踪屏蔽类的
+        # hosts 会把上千个域名钉到 0.0.0.0，而 0.0.0.0 作为连接目标在
+        # Windows/macOS 上等同回环 —— 按存在性豁免等于把这一整批域名变成访问本机
+        # 服务的入口，且攻击者不需要能写 hosts，只需要挑一个已经在里面的名字。
+        # 黑洞钉位的语义是"这里什么都没有"，照连并把结果回报才真正违背用户意图。
+        # 钉到 127.0.0.1 之类的本地开发覆盖仍按原样豁免：那是"我要打到本机这个服务"
+        # 的显式决定，与黑洞的意图相反。
+        if _is_blackhole_pin(pin):
+            return f"hosts-pinned blackhole ({pin}) - treated as internal"
+        _DNS_CHECK_CACHE[hostname] = (now + _DNS_ALLOW_TTL, None)
+        return None
+
+    verdict: str | None = None
+    try:
+        import socket as _socket
+        infos = _socket.getaddrinfo(hostname, None)
+    except Exception:
+        infos = []
+    for info in infos:
+        info_ip = info[4][0]
+        try:
+            resolved = ipaddress.ip_address(info_ip.split("%")[0])
+        except ValueError:
+            continue
+        for network in _PRIVATE_NETWORKS:
+            try:
+                if resolved in network:
+                    verdict = f"{info_ip} in {network}"
+                    break
+            except TypeError:
+                pass  # IPv4/IPv6 type mismatch, skip
+        if verdict:
+            break
+
+    if len(_DNS_CHECK_CACHE) >= _DNS_CACHE_MAX:
+        _DNS_CHECK_CACHE.clear()
+    _DNS_CHECK_CACHE[hostname] = (now + (_DNS_BLOCK_TTL if verdict else _DNS_ALLOW_TTL), verdict)
+    return verdict
 
 
 def _normalize_ip_notation(host: str) -> str | None:
@@ -289,31 +448,18 @@ def validate_url(url: str, allow_internal: bool = False) -> str:
             if hostname_lower.endswith(_DNS_REBINDING_SUFFIXES):
                 raise SecurityError(f"URL uses DNS rebinding service: {hostname}")
             # 纵深防御（报告声明 4）：域名经 DNS 解析到的内网 IP 复查。
-            # 默认关闭（DHOLE_SSRF_DNS_RECHECK=1 开启）：在 DNS 污染/分流环境
-            # （如被墙地区公网域名被解析到 198.18.0.0/15 等保留地址）会误伤
-            # 所有合法公网请求。开启后只对"解析成功且命中内网"拒绝；
-            # 解析失败（gaierror/超时）容忍。注意存在 DNS rebinding TOCTOU
-            # 竞态，作为纵深防御而非唯一防线。
+            # 默认开启；DHOLE_SSRF_DNS_RECHECK=0 关闭（见 _dns_recheck_enabled）。
+            # 只拒绝"解析成功且命中内网"；解析失败（gaierror/超时）容忍。
+            # 存在 DNS rebinding TOCTOU 竞态，作为纵深防御而非唯一防线。
             if _dns_recheck_enabled():
-                try:
-                    import socket as _socket
-                    infos = _socket.getaddrinfo(hostname, None)
-                except Exception:
-                    infos = []
-                for info in infos:
-                    info_ip = info[4][0]
-                    try:
-                        resolved = ipaddress.ip_address(info_ip.split("%")[0])
-                    except ValueError:
-                        continue
-                    for network in _PRIVATE_NETWORKS:
-                        try:
-                            if resolved in network:
-                                raise SecurityError(
-                                    f"URL hostname {hostname} resolves to internal/private IP ({info_ip} in {network})"
-                                )
-                        except TypeError:
-                            pass
+                internal = _resolves_to_internal(hostname)
+                if internal:
+                    raise SecurityError(
+                        f"URL hostname {hostname} resolves to internal/private IP ({internal}). "
+                        "If your resolver maps public domains to reserved addresses (DNS "
+                        "pollution / split-horizon), set DHOLE_SSRF_DNS_RECHECK=0 to disable "
+                        "this check."
+                    )
 
     return url
 

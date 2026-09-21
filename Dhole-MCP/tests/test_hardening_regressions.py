@@ -109,7 +109,6 @@ class TestKickHealthCheckWithoutEventLoop:
 
 _BRIGHTDATA_KEY = "brd-customer-0123-zone-dhole-SECRETDONOTLOG"
 
-
 class TestBrightDataErrorBodyRedaction:
     """Bright Data 的失败响应体不得把 key 原样写进日志。"""
 
@@ -134,3 +133,648 @@ class TestBrightDataErrorBodyRedaction:
         assert results == []
         assert _BRIGHTDATA_KEY not in caplog.text, "Bright Data key 泄漏到了日志"
         assert "500" in caplog.text, "脱敏不能把状态码这个排障线索一起抹掉"
+
+
+# ---------------------------------------------------------------------------
+# 缓存的作用域：共享状态不得跨请求上下文回放
+# ---------------------------------------------------------------------------
+
+
+class TestCacheContextIsolation:
+    """缓存键必须覆盖「改变返回内容」的请求上下文。
+
+    缓存是整机共享的（``~/.dhole/cache.db``），而键里只有
+    URL + 抽取参数：带 cookies/auth 抓来的正文会被之后一次匿名抓取原样
+    回放，且回放时 ``cached=True`` / ``content_ok=true``。同一份代码为
+    ``actions`` 做了「绕过缓存」，却没为凭据做同样处理。
+    """
+
+    def test_plain_request_keeps_the_old_empty_fingerprint(self):
+        """默认请求指纹为空 —— 修复不能把已有缓存一次性作废。"""
+        from dhole_mcp.server import _cache_context
+
+        assert _cache_context({}) == ""
+        assert _cache_context({
+            "cookies": None, "extra_headers": None, "useragent": None, "proxy": None,
+            "main_content_only": True, "use_trafilatura": True,
+            "include_media": False, "include_links": False,
+        }) == ""
+
+    def test_credentials_and_content_flags_change_the_fingerprint(self):
+        from dhole_mcp.server import _cache_context
+
+        base = _cache_context({})
+        cookies = _cache_context({"cookies": [{"name": "session", "value": "abc"}]})
+        headers = _cache_context({"extra_headers": {"Authorization": "Bearer x"}})
+        media = _cache_context({"include_media": True})
+        assert len({base, cookies, headers, media}) == 4
+        # 同一份凭据 → 同一指纹，否则缓存永不命中
+        assert cookies == _cache_context({"cookies": [{"name": "session", "value": "abc"}]})
+        # header 顺序不该影响指纹
+        assert _cache_context({"extra_headers": {"A": "1", "B": "2"}}) == \
+            _cache_context({"extra_headers": {"B": "2", "A": "1"}})
+
+    def test_cache_key_separates_contexts(self):
+        from dhole_mcp.cache import _cache_key
+
+        url = "https://example.com/private"
+        assert _cache_key(url, "markdown") != _cache_key(url, "markdown", ctx="deadbeef")
+
+    @pytest.mark.asyncio
+    async def test_credentialed_body_is_not_served_to_an_anonymous_fetch(self, temp_dir):
+        from dhole_mcp.cache import get_cached, set_cached
+
+        url = "https://example.com/private"
+        await set_cached(url, "markdown", ["private body"], 200,
+                         cache_dir=temp_dir, ctx="A")
+        # 匿名请求（ctx=""）看不到带凭据写入的正文
+        assert await get_cached(url, "markdown", cache_dir=temp_dir) is None
+        hit = await get_cached(url, "markdown", cache_dir=temp_dir, ctx="A")
+        assert hit is not None and hit["content"] == ["private body"]
+
+    def test_request_context_decorator_sets_the_fingerprint(self):
+        """接线测试：smart_fetch 的请求上下文装饰器负责把指纹放进 ContextVar。
+
+        只看纯函数不够——指纹必须真的在调用期间生效，否则缓存键永远为空。
+        """
+        import asyncio
+
+        from dhole_mcp import server as server_mod
+
+        captured: dict = {}
+
+        @server_mod._smart_fetch_request_context
+        async def fake(self, url="", urls=None, extraction_type="markdown",
+                       css_selector=None, main_content_only=True, use_trafilatura=True,
+                       cache_ttl=3600, force_fetcher=None, headless=True,
+                       real_chrome=False, wait=0, proxy=None, timeout=30000,
+                       network_idle=False, solve_cloudflare=True, block_webrtc=True,
+                       hide_canvas=True, extra_headers=None, useragent=None, cookies=None,
+                       offset=0, max_content_chars=None, pages=None, password=None,
+                       focus=None, actions=None, include_media=False, include_links=False,
+                       schema=None):
+            captured["ctx"] = server_mod._CACHE_CTX.get()
+
+        asyncio.run(fake(None, url="https://x/y", cookies=[{"name": "s", "value": "1"}]))
+        credentialed = captured["ctx"]
+        assert credentialed != ""
+
+        asyncio.run(fake(None, url="https://x/y"))
+        assert captured["ctx"] == "", "指纹必须随调用重置，不能泄漏到下一条请求"
+
+        # 同一份 cookies → 同一个指纹（缓存仍能命中）
+        asyncio.run(fake(None, url="https://x/y", cookies=[{"name": "s", "value": "1"}]))
+        assert captured["ctx"] == credentialed
+
+    @pytest.mark.asyncio
+    async def test_finalize_result_passes_the_context_to_the_cache(self, monkeypatch):
+        """写侧接线：_finalize_result 必须把当前指纹交给 set_cached。"""
+        from dhole_mcp import server as server_mod
+
+        seen: dict = {}
+
+        async def fake_set_cached(url, extraction_type, content, status, css_selector,
+                                  ttl, **kwargs):
+            seen["ctx"] = kwargs.get("ctx")
+            seen["url"] = url
+
+        monkeypatch.setattr(server_mod, "set_cached", fake_set_cached)
+        srv = server_mod.MasterFetchServer(cache_ttl=3600)
+        result = server_mod._with_agent_hints(server_mod.ResponseModel(
+            url="https://example.com/x", status=200, content=["hello"],
+        ))
+        token = server_mod._CACHE_CTX.set("ctx123")
+        try:
+            await srv._finalize_result(result, "https://example.com/x", "markdown",
+                                       None, 3600)
+        finally:
+            server_mod._CACHE_CTX.reset(token)
+        assert seen.get("url") == "https://example.com/x"
+        assert seen.get("ctx") == "ctx123"
+
+    # ─── PDF 口令维度（14.3 的凭据修复漏了它）────────────────────────
+
+    def test_pdf_password_changes_the_fingerprint(self):
+        """口令改变"能不能解出正文"，因此必须进缓存指纹。
+
+        14.3 把 cookies/headers/UA/proxy 四维补进了键，password 却仍是裸的：
+        用 password= 解出来的 PDF 正文与同一 URL 的匿名行撞同一个键。
+        """
+        from dhole_mcp.server import _cache_context
+
+        plain = _cache_context({})
+        pw = _cache_context({"password": "s3cret"})
+        assert plain == ""
+        assert pw and pw != plain
+        # 同一口令 → 同一指纹，否则带口令的缓存永不命中
+        assert pw == _cache_context({"password": "s3cret"})
+        # 明文口令不得出现在指纹里（指纹本身就是缓存键的一部分）
+        assert "s3cret" not in pw
+        assert _cache_context({"password": ""}) == ""
+        assert _cache_context({"password": None}) == ""
+
+    @pytest.mark.asyncio
+    async def test_two_passwords_do_not_share_a_row(self, temp_dir):
+        from dhole_mcp.server import _cache_context
+        from dhole_mcp.cache import get_cached, set_cached
+
+        url = "https://example.com/doc.pdf"
+        a = _cache_context({"password": "alpha"})
+        b = _cache_context({"password": "bravo"})
+        assert a != b
+        await set_cached(url, "markdown", ["alpha body"], 200, cache_dir=temp_dir, ctx=a)
+        assert await get_cached(url, "markdown", cache_dir=temp_dir, ctx=b) is None
+        assert (await get_cached(url, "markdown", cache_dir=temp_dir, ctx=a))["content"] == ["alpha body"]
+
+    @pytest.mark.asyncio
+    async def test_decrypted_pdf_body_is_not_served_to_a_passwordless_refetch(self, temp_dir):
+        """端到端那一格的缓存侧：匿名请求不能读到别人用口令解出来的正文。"""
+        from dhole_mcp.server import _cache_context
+        from dhole_mcp.cache import get_cached, set_cached
+
+        url = "https://example.com/financials.pdf"
+        ctx = _cache_context({"password": "board-only"})
+        await set_cached(url, "markdown", ["DECRYPTED CONFIDENTIAL"], 200,
+                         cache_dir=temp_dir, ctx=ctx)
+        assert await get_cached(url, "markdown", cache_dir=temp_dir) is None,             "口令解出的正文被匿名请求回放了"
+
+    def test_password_flows_through_the_request_context_decorator(self):
+        """接线：password 是真参数，必须真的进指纹（纯函数测试看不到这点）。"""
+        import asyncio
+
+        from dhole_mcp import server as server_mod
+
+        captured: dict = {}
+
+        @server_mod._smart_fetch_request_context
+        async def fake(self, url="", password=None, pages=None, focus=None,
+                       include_media=False, include_links=False, cookies=None,
+                       extra_headers=None, useragent=None, proxy=None,
+                       main_content_only=True, use_trafilatura=True):
+            captured["ctx"] = server_mod._CACHE_CTX.get()
+
+        asyncio.run(fake(None, url="https://x/a.pdf", password="s3cret"))
+        with_pw = captured["ctx"]
+        assert with_pw != ""
+        asyncio.run(fake(None, url="https://x/a.pdf"))
+        assert captured["ctx"] == "", "指纹必须随调用重置"
+        asyncio.run(fake(None, url="https://x/a.pdf", password="s3cret"))
+        assert captured["ctx"] == with_pw
+
+    @pytest.mark.asyncio
+    async def test_legacy_pdf_rows_are_purged_once_and_nothing_else_dies(self, temp_dir):
+        """升级只清唯一可能受影响的子集，其余命中照旧。
+
+        整体作废缓存对这个工具有实代价：某些网络上被拦的页面抓不回来
+        （见 paths.migrate_legacy_cache_dir 的理由）。
+        """
+        import aiosqlite
+
+        from dhole_mcp import cache as cache_mod
+        from dhole_mcp.cache import get_cached, set_cached
+
+        await set_cached("https://x/a.pdf", "markdown", ["decrypted secret"], 200,
+                         cache_dir=temp_dir, css_selector=None, content_type="application/pdf")
+        await set_cached("https://x/other.pdf?v=2", "markdown", ["second pdf"], 200,
+                         cache_dir=temp_dir)
+        await set_cached("https://x/page.html", "markdown", ["normal page"], 200,
+                         cache_dir=temp_dir)
+
+        # 假装这是升级前写的库：键版本退回 1
+        db = await aiosqlite.connect(temp_dir / "cache.db")
+        await db.execute("PRAGMA user_version=1")
+        await db.commit()
+        await db.close()
+        cache_mod._db_initialized.clear()
+        await cache_mod._ensure_db(temp_dir)
+
+        assert await get_cached("https://x/a.pdf", "markdown", cache_dir=temp_dir) is None
+        assert await get_cached("https://x/other.pdf?v=2", "markdown",
+                                cache_dir=temp_dir) is None
+        hit = await get_cached("https://x/page.html", "markdown", cache_dir=temp_dir)
+        assert hit is not None and hit["content"] == ["normal page"], "误伤了非 PDF 行"
+
+        # 幂等：版本已到位后，新写的 PDF 行不能再被清掉
+        await set_cached("https://x/new.pdf", "markdown", ["fresh pdf"], 200, cache_dir=temp_dir)
+        cache_mod._db_initialized.clear()
+        await cache_mod._ensure_db(temp_dir)
+        fresh = await get_cached("https://x/new.pdf", "markdown", cache_dir=temp_dir)
+        assert fresh is not None and fresh["content"] == ["fresh pdf"]
+
+
+
+# ---------------------------------------------------------------------------
+# 隐式域名加权：默认关闭
+# ---------------------------------------------------------------------------
+
+
+class TestSearchFeedbackIsOptIn:
+    """``record_search_feedback`` 会按「抓到过就算有用」永久给域名加分
+    （+0.05，落盘、上限 500），静默改写跨引擎共识排序。默认必须不生效。"""
+
+    def test_disabled_by_default_and_writes_nothing(self, monkeypatch, temp_dir):
+        from dhole_mcp import search
+
+        monkeypatch.delenv("DHOLE_SEARCH_FEEDBACK", raising=False)
+        monkeypatch.setattr(search, "_feedback_file", lambda: str(temp_dir / "search_feedback.json"))
+        monkeypatch.setattr(search, "_feedback_cache", None)
+        assert search._feedback_enabled() is False
+        assert search._feedback_domains() == frozenset()
+        search.record_search_feedback("https://useful.example/page")
+        assert not (temp_dir / "search_feedback.json").exists(), "默认不该写反馈文件"
+        assert search._domain_boost("https://useful.example/page", "q", False) == 0.0
+
+    def test_opt_in_restores_the_boost(self, monkeypatch, temp_dir):
+        from dhole_mcp import search
+
+        monkeypatch.setenv("DHOLE_SEARCH_FEEDBACK", "1")
+        monkeypatch.setattr(search, "_feedback_file", lambda: str(temp_dir / "search_feedback.json"))
+        monkeypatch.setattr(search, "_feedback_cache", None)
+        monkeypatch.setattr(search, "_feedback_mtime", 0.0)
+        search.record_search_feedback("https://useful.example/page")
+        assert search._feedback_domains() == frozenset({"useful.example"})
+        assert search._domain_boost("https://useful.example/page", "q", False) == \
+            pytest.approx(0.05)
+
+
+# ---------------------------------------------------------------------------
+# 本地调用日志：默认关闭，且不记录参数值
+# ---------------------------------------------------------------------------
+
+
+class TestUsageLogIsOptIn:
+    """「agent 到底有没有调用 dhole」是这套工具最大的静默失败面，但没有本地
+    记录就无法回答。日志必须默认关闭、且只写工具名与结果，不写参数值。"""
+
+    def test_nothing_written_by_default(self, monkeypatch, temp_dir):
+        from dhole_mcp import server
+
+        monkeypatch.delenv("DHOLE_USAGE_LOG", raising=False)
+        server._log_tool_call("smart_fetch", True, 12.0)
+        assert list(temp_dir.iterdir()) == []
+
+    def test_enabled_records_outcome_without_arguments(self, monkeypatch, temp_dir):
+        import json
+
+        from dhole_mcp import server
+
+        target = temp_dir / "usage.jsonl"
+        monkeypatch.setenv("DHOLE_USAGE_LOG", str(target))
+        server._log_tool_call("smart_search", False, 3.5,
+                              "boom sk-abcdefghijklmnopqrstuvwxyz")
+        line = json.loads(target.read_text(encoding="utf-8").strip())
+        assert line["tool"] == "smart_search"
+        assert line["ok"] is False
+        assert line["ms"] == pytest.approx(3.5)
+        assert "sk-abcdefghijklmnopqrstuvwxyz" not in line.get("error", "")
+
+
+# ---------------------------------------------------------------------------
+# 自愈路径：跟随配置的发行版名，且可整体关闭
+# ---------------------------------------------------------------------------
+
+
+class TestRepairFollowsTheConfiguredDistribution:
+    """``dhole`` 入口在 ImportError 时会无人值守地 ``pip install
+    --force-reinstall``。发行版名曾经硬编码，于是「配置了自己的发行版的 fork」
+    仍会从 PyPI 装回公开包（13.x 之前正是这样把上游代码覆盖进本仓库的）。"""
+
+    def test_default_dist_name(self, monkeypatch):
+        from dhole_mcp import cli
+
+        monkeypatch.delenv("DHOLE_UPDATE_PACKAGE", raising=False)
+        assert cli._dist_name() == "dhole-mcp"
+
+    def test_script_uses_configured_dist_and_index(self, monkeypatch):
+        from dhole_mcp import cli
+
+        monkeypatch.setenv("DHOLE_UPDATE_PACKAGE", "my-fork-name")
+        monkeypatch.setenv("DHOLE_UPDATE_INDEX_URL", "https://mirror.example/simple")
+        script = cli._repair_script_text(cli._dist_name(), cli._index_url())
+        assert "my-fork-name" in script
+        assert "dhole-mcp" not in script, "自愈脚本不得写死公开发行版名"
+        assert "https://mirror.example/simple" in script
+        # 生成的脚本必须是可编译的 Python
+        compile(script, "repair.py", "exec")
+
+    def test_script_without_index_stays_compilable(self):
+        from dhole_mcp import cli
+
+        script = cli._repair_script_text("dhole-mcp", "")
+        compile(script, "repair.py", "exec")
+        assert "--index-url" not in script
+
+    def test_auto_repair_can_be_disabled(self, monkeypatch):
+        from dhole_mcp import cli
+
+        monkeypatch.delenv("DHOLE_NO_AUTO_REPAIR", raising=False)
+        assert cli._auto_repair_enabled() is True
+        for value in ("1", "true", "YES", "on"):
+            monkeypatch.setenv("DHOLE_NO_AUTO_REPAIR", value)
+            assert cli._auto_repair_enabled() is False
+
+    def test_updater_repair_script_is_compilable(self, monkeypatch, temp_dir):
+        """updater 写出的 repair.py 同样要能编译（含包名/索引替换）。"""
+        from dhole_mcp import updater
+
+        monkeypatch.setenv("DHOLE_UPDATE_PACKAGE", "my-fork-name")
+        monkeypatch.setenv("DHOLE_UPDATE_INDEX_URL", "https://mirror.example/simple")
+        target = temp_dir / "repair.py"
+        monkeypatch.setattr(updater, "repair_script_path", lambda: str(target))
+        updater._write_repair_script()
+
+        text = target.read_text(encoding="utf-8")
+        compile(text, "repair.py", "exec")
+        assert "my-fork-name" in text
+        assert "dhole-mcp" not in text
+        assert "https://mirror.example/simple" in text
+
+    def test_main_does_not_reinstall_when_disabled(self, monkeypatch, capsys):
+        """关了自动修复时，ImportError 绝不允许跑 pip。"""
+        import builtins
+
+        from dhole_mcp import cli
+
+        monkeypatch.setenv("DHOLE_NO_AUTO_REPAIR", "1")
+        monkeypatch.setattr(cli, "_run_repair",
+                            lambda: pytest.fail("不应调用自愈（pip 重装）"))
+
+        real_import = builtins.__import__
+
+        def _fake_import(name, *args, **kwargs):
+            if name == "dhole_mcp.server":
+                raise ModuleNotFoundError("No module named 'dhole_mcp.server'",
+                                          name="dhole_mcp.server")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _fake_import)
+        rc = cli.main()
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "Auto-repair disabled" in out
+        assert "dhole-mcp" in out  # 仍然告诉用户确切的修复命令
+
+
+# ---------------------------------------------------------------------------
+# 面向 agent 的措辞：抓来的正文是数据，不是指令
+# ---------------------------------------------------------------------------
+
+
+def test_instructions_mark_page_text_as_untrusted():
+    """抓取结果与服务器自写的 next_action/summary 走同一条信道，容易被模型当成
+    同一类「可信指令」。指令里必须显式声明页面正文是不可信数据。"""
+    from dhole_mcp.server import DHOLE_INSTRUCTIONS
+
+    low = DHOLE_INSTRUCTIONS.lower()
+    assert "untrusted" in low
+    assert "never instructions" in low
+
+
+def test_instructions_do_not_overclaim_officialness():
+    """措辞必须与实现一致：is_official 只对 gov/edu/github 为真。"""
+    from dhole_mcp.server import DHOLE_INSTRUCTIONS
+
+    assert "gov/edu/github" in DHOLE_INSTRUCTIONS
+
+
+# ---------------------------------------------------------------------------
+# 模型下载源：HF 失败时回退镜像
+# ---------------------------------------------------------------------------
+
+
+class TestRerankerDownloadEndpoints:
+    """huggingface.co 在很多国内桌面被 hosts 钉死（本机就是：
+    `127.0.0.1 huggingface.co`）。下载源没有回退，模型就永远下不回来，
+    神经排序永久静默降级，且没有报错。"""
+
+    def test_default_order_is_hf_then_mirror(self, monkeypatch):
+        from dhole_mcp import reranker
+
+        monkeypatch.delenv("DHOLE_HF_ENDPOINT", raising=False)
+        monkeypatch.delenv("HF_ENDPOINT", raising=False)
+        assert reranker._hf_endpoints() == \
+            ["https://huggingface.co", "https://hf-mirror.com"]
+
+    def test_env_override_pins_one_endpoint(self, monkeypatch):
+        from dhole_mcp import reranker
+
+        monkeypatch.setenv("DHOLE_HF_ENDPOINT", "https://my-mirror.internal/")
+        assert reranker._hf_endpoints() == ["https://my-mirror.internal"]
+
+    def test_urls_keep_the_pinned_revision(self, monkeypatch):
+        """换端点不换内容：revision 固定，任何来源的字节一致。"""
+        from dhole_mcp import reranker
+
+        for name, model in reranker.MODELS.items():
+            urls = reranker._model_urls(model, "model.onnx")
+            assert len(urls) >= 2, name
+            assert all(model.rev in u for u in urls), name
+            assert all(u.endswith("/" + model.relpaths["model.onnx"]) for u in urls), name
+            assert all(f"/{model.repo}/" in u for u in urls), name
+
+    def test_default_bge_zh_is_the_int8_bilingual_model(self):
+        """450MB fp32 太重：默认必须落在小一号的中英双语 int8 上。"""
+        from dhole_mcp import reranker
+
+        default = reranker.MODELS[reranker.DEFAULT_MODEL]
+        assert default.name == "bge-zh"
+        assert default.relpaths["model.onnx"].endswith("int8.onnx")
+        assert default.approx_bytes < 300_000_000
+        assert "zh" in default.label or "bilingual" in default.label
+
+    def test_download_model_file_falls_back_to_the_next_endpoint(self, monkeypatch):
+        """第一个端点失败必须继续试下一个，而不是直接放弃。"""
+        from pathlib import Path
+
+        from dhole_mcp import reranker
+
+        tried: list[str] = []
+
+        def _fail(url, dest):
+            tried.append(url.split("/")[2])
+            return False
+
+        monkeypatch.setattr(reranker, "_download_file", _fail)
+        assert reranker._download_model_file("vocab.txt", Path("x")) is False
+        assert tried == ["huggingface.co", "hf-mirror.com"]
+
+
+
+
+class TestRepairIsPinnedToTheInstalledVersion:
+    """自愈重装必须钉在当前版本上。
+
+    不钉的话，一次由**任意** ImportError 触发的无人值守重装会去拉"索引上当前的最
+    新版"—— 信任根等于包名字空间本身。这个 fork 的名字改过两次，CHANGELOG 里就记着
+    自愈曾因解析到上游发行名而把本 fork 覆盖掉。
+    """
+
+    def test_pip_spec_pins_when_metadata_is_readable(self, monkeypatch):
+        from dhole_mcp import cli
+        monkeypatch.setattr(cli, "_installed_version", lambda d: "14.4")
+        assert cli._pip_spec("dhole-mcp") == "dhole-mcp==14.4"
+
+    def test_pip_spec_falls_back_to_bare_name_when_metadata_is_gone(self, monkeypatch):
+        """metadata 缺失时只能不钉 —— 而那恰好就是安装已损坏的场景。"""
+        from dhole_mcp import cli
+        monkeypatch.setattr(cli, "_installed_version", lambda d: "")
+        assert cli._pip_spec("dhole-mcp") == "dhole-mcp"
+
+    def test_generated_repair_script_carries_the_pin(self, monkeypatch):
+        from dhole_mcp import cli
+        monkeypatch.setattr(cli, "_installed_version", lambda d: "14.4")
+        text = cli._repair_script_text("dhole-mcp", "")
+        assert "SPEC = 'dhole-mcp==14.4'" in text
+        assert 'args = ["--force-reinstall", SPEC]' in text
+        # 生成物必须是能独立跑的合法 Python（它在半坏环境里被执行）
+        compile(text, "<repair.py>", "exec")
+
+    def test_generated_repair_script_still_compiles_without_metadata(self, monkeypatch):
+        from dhole_mcp import cli
+        monkeypatch.setattr(cli, "_installed_version", lambda d: "")
+        compile(cli._repair_script_text("dhole-mcp", ""), "<repair.py>", "exec")
+
+    def test_updater_repair_script_is_pinned_too(self, tmp_path, monkeypatch):
+        """同一份修复脚本有**两个生成器**（cli 与 updater），只钉一个等于没钉。"""
+        from dhole_mcp import updater
+        target = tmp_path / "repair.py"
+        monkeypatch.setattr(updater, "repair_script_path", lambda: str(target))
+        monkeypatch.setattr(updater, "_dist_spec", lambda: "dhole-mcp==14.4")
+        updater._write_repair_script()
+        text = target.read_text(encoding="utf-8")
+        assert '"dhole-mcp==14.4"' in text
+        # 钉住时不能再带 --upgrade（意图相反）
+        assert '_pinned = "==" in "dhole-mcp==14.4"' in text
+        compile(text, "<repair.py>", "exec")
+
+    def test_direct_reinstall_fallback_is_pinned(self, monkeypatch):
+        """写不出 repair.py 时的内联兜底也走同一个 spec。"""
+        from dhole_mcp import cli
+        seen = {}
+
+        class _R:
+            returncode = 0
+
+        def fake_run(cmd, *a, **k):
+            seen["cmd"] = cmd
+            return _R()
+
+        monkeypatch.setattr(cli, "_installed_version", lambda d: "9.9.9")
+        # 只让建目录失败，逼出"写不出 repair.py 就内联跑 pip"那条兜底分支
+        import os as _os
+        def _boom(*a, **k):
+            raise OSError("read-only home")
+        monkeypatch.setattr(_os, "makedirs", _boom)
+        import subprocess
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        cli._run_repair()
+        assert "dhole-mcp==9.9.9" in seen.get("cmd", [])
+
+
+class TestServerCacheTtlFlagIsLive:
+    """`dhole --cache-ttl N` 必须是真旋钮。
+
+    它此前是死的：smart_fetch 的默认值在函数定义时就把模块常量 DEFAULT_TTL 焊进了
+    签名，self._cache_ttl 赋值后没有任何读取点。用户唯一能表达"别存这么久"的开关
+    不生效，而 README 还列着它。
+    """
+
+    class _Stop(Exception):
+        """读到 ttl 之后立刻停住 —— 绝不放行到真正的抓取路径（测试必须零网络）。"""
+
+    def _read_ttl(self, monkeypatch, srv, **kw):
+        import asyncio
+
+        from dhole_mcp import server as server_mod
+        seen: dict = {}
+
+        async def fake_get(url, extraction_type, css_selector, **kwargs):
+            seen["read_ttl"] = kwargs.get("ttl")
+            return None
+
+        async def stop(*a, **kwargs):
+            raise self._Stop()
+
+        monkeypatch.setattr(server_mod, "get_cached", fake_get)
+        monkeypatch.setattr(server_mod.MasterFetchServer, "_auto_escalate", stop)
+        monkeypatch.setattr(server_mod.MasterFetchServer, "_force_fetch", stop)
+        with pytest.raises(self._Stop):
+            asyncio.run(srv.smart_fetch(url="https://example.com/x", **kw))
+        return seen
+
+    def test_instance_default_reaches_the_cache_lookup(self, monkeypatch):
+        from dhole_mcp import server as server_mod
+        srv = server_mod.MasterFetchServer(cache_ttl=99)
+        seen = self._read_ttl(monkeypatch, srv)
+        assert seen.get("read_ttl") == 99, "读取用的 TTL 应来自实例，而非被焊死的 DEFAULT_TTL"
+
+    def test_explicit_argument_still_wins(self, monkeypatch):
+        from dhole_mcp import server as server_mod
+        srv = server_mod.MasterFetchServer(cache_ttl=99)
+        assert self._read_ttl(monkeypatch, srv, cache_ttl=5).get("read_ttl") == 5
+
+    def test_unset_flag_keeps_the_documented_hour(self, monkeypatch):
+        from dhole_mcp.cache import DEFAULT_TTL
+        from dhole_mcp import server as server_mod
+        srv = server_mod.MasterFetchServer()
+        assert srv._cache_ttl == DEFAULT_TTL
+        assert self._read_ttl(monkeypatch, srv).get("read_ttl") == DEFAULT_TTL
+
+    def test_zero_still_skips_the_cache_lookup(self, monkeypatch):
+        """cache_ttl=0 = 完全绕开缓存，这条既有语义不能被哨兵改动弄丢。"""
+        from dhole_mcp import server as server_mod
+        srv = server_mod.MasterFetchServer()
+        assert "read_ttl" not in self._read_ttl(monkeypatch, srv, cache_ttl=0)
+
+
+class TestPdfPasswordReachesTheExtractorAndTheCache:
+    """口令链的接线：选项 → _PDF_PASSWORD → extract_pdf(password=…) → 写缓存用带口令的指纹。
+
+    这条验的是**接线**（用打桩，能指出"口令没传下去"这类错）；pdfplumber 真解密那份
+    行为由 tests/test_pdf_real.py 用真加密字节验（pypdf 现场生成样本）。两条合起来
+    才闭合：一条证"传到了"，一条证"传到了就真解得开"。
+    """
+
+    def test_option_flows_to_the_extractor_and_the_cache_key(self, monkeypatch):
+        import asyncio
+
+        from dhole_mcp import pdf_extractor
+        from dhole_mcp import server as sm
+
+        seen: dict = {}
+
+        def fake_extract_pdf(body, extraction_type="markdown", pages=None,
+                             password=None, include_media=False):
+            seen["password"] = password
+            # 真实现解开口令后 encrypted 是 False（加密标志只在"打开失败/被拒"时立起，
+            # server 用它来决定还该不该走 OCR）—— 桩要跟真行为一致，否则测试在教错事。
+            return pdf_extractor.PdfResult(
+                content=["DECRYPTED BODY"], encrypted=False, content_ok=True)
+
+        monkeypatch.setattr(pdf_extractor, "extract_pdf", fake_extract_pdf)
+
+        writes: dict = {}
+
+        async def fake_set_cached(url, extraction_type, content, status, css_selector,
+                                  ttl, **kwargs):
+            writes["ctx"] = kwargs.get("ctx")
+            writes["content"] = content
+
+        monkeypatch.setattr(sm, "set_cached", fake_set_cached)
+
+        srv = sm.MasterFetchServer(cache_ttl=3600)
+        pw_token = sm._PDF_PASSWORD.set("s3cret")
+        ctx_token = sm._CACHE_CTX.set(sm._cache_context({"password": "s3cret"}))
+        try:
+            res = sm._extract_pdf_response(b"%PDF-1.4 fake", "application/pdf", 13,
+                                           "https://x/a.pdf", "markdown", "http", 5.0)
+            assert seen["password"] == "s3cret", "口令没传到 extract_pdf"
+            assert sm._cache_context({"password": "s3cret"}) != ""
+            asyncio.run(srv._finalize_result(res, "https://x/a.pdf", "markdown", None, 3600))
+        finally:
+            sm._PDF_PASSWORD.reset(pw_token)
+            sm._CACHE_CTX.reset(ctx_token)
+
+        assert writes.get("content") == ["DECRYPTED BODY"], "解密正文没进写缓存路径"
+        assert writes.get("ctx") == sm._cache_context({"password": "s3cret"}), \
+            "带口令解出的正文必须以带口令的指纹写入，否则匿名请求可以复读"
