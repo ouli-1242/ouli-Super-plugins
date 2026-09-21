@@ -1,6 +1,6 @@
 ---
 name: superoffice
-description: "Use when any office-document task starts - drafting reports, memos, letters, slides, meeting notes; summarizing messy input; reviewing someone's material; filling forms; spreadsheet work; or any Word/Excel/PPT/PDF task. 中文同样适用（写报告、做PPT、改格式、整理会议记录、审材料、填表、做表格）。The entry router that picks the right verb skill BEFORE acting, and carries the office disciplines. NOT for retrieving external information - that is a research task, not an office verb."
+description: "Use when any office-document task starts - drafting reports, memos, letters, slides, meeting notes; summarizing messy input; reviewing material; filling forms; spreadsheet work; any Word/Excel/PPT/PDF task. 中文同样适用（写报告、做PPT、改格式、整理会议记录、审材料、填表、做表格）。Entry router: picks the verb skill BEFORE acting and binds the office disciplines. NOT for retrieving external information (research, not an office verb). Exempt: trivial one-line edits - do directly; disciplines still bind."
 ---
 # SuperOffice — Office Verb Router and Discipline Binding
 
@@ -47,6 +47,8 @@ Pick the right verb skill for an office task and bind the four office discipline
 - Quality bar: one verb at a time; chains stated up front.
 
 ## Constraints and Prohibitions (unconditional disciplines — no exemptions)
+
+Canonical values: `shared/disciplines.yaml`; the four below restate them.
 
 1. **数字与引用真实性。** Every number comes from a user file or a tool computation — never invented, never silently estimated; every citation comes from real retrieval. Missing data → mark `[待核实]` and ask.
 2. **模板优先。** Before drafting, look up the unit's/personal template or a past sample (doc-asset). No template → confirm the structure with the user before writing. Never invent an organization's format.

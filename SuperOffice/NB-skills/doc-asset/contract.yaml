@@ -1,6 +1,6 @@
 id: "NB-skills/doc-asset"
 name: "doc-asset"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Persist organization/personal document conventions as user-confirmed assets extracted from real artifacts; profiles get smarter with use."
@@ -65,3 +65,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-asset; confirmation-before-record and measure-dont-recall kept as hard constraints."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

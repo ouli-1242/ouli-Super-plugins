@@ -1,6 +1,6 @@
 id: "NB-skills/doc-draft"
 name: "doc-draft"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Draft any office document via one frame - four questions, template-derived skeleton, material-only content, gaps delivered visibly."
@@ -64,3 +64,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-draft; four questions and skeleton priority kept as constraints."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

@@ -43,6 +43,7 @@ Gate every office deliverable behind fresh, tool-run evidence — read back, ren
 - Checks run **in this turn**, as commands with visible output; "我检查过了" without when/how/output is an unverified claim.
 - Last-minute edits invalidate prior evidence — re-run the checks on the final file.
 - **Deliver step**: email drafted (recipient, subject, attachment names checked against the verified files — yesterday's version is the classic failure) but sending happens on the user's explicit go; print settings (range, copies, duplex, paper) confirmed for anything beyond trivial; IM channels only if configured, and still need the user's go.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: "应该没问题" (should is not evidence — open it); "我刚生成的，内容我确定" (generation is not verification — conversion bugs, font substitutions, and stale formula caches are invisible at write time); "用户马上要用，先交了再说" (a wrong file on time is worse than a right file five minutes late).
 
 ## Acceptance Criteria
@@ -69,3 +70,7 @@ Gate every office deliverable behind fresh, tool-run evidence — read back, ren
 
 - Metrics: handovers without fresh evidence (target 0), undeclared gaps discovered by the user, wrong-attachment sends (target 0).
 - Log: evidence table + gaps note archived with the delivery; recurring pain → doc-asset proposal.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

@@ -1,6 +1,6 @@
 id: "NB-skills/brainstorming"
 name: "brainstorming"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Turn an underspecified idea into an approved design; guarantee no implementation before explicit user approval."
@@ -20,6 +20,7 @@ dependencies:
   data:
     - "docs/文档导航.md (registration)"
     - "docs/决策记录.md (prior decisions, when present)"
+    - "visual companion intentionally dropped in this variant; install SuperWork/brainstorming instead if the companion is needed (never install both variants into one skills dir)"
   skills: [doc-index, writing-plans, tdd, domain-modeling]
 permissions:
   - "Write within docs/ (调研/, 设计/) only; no source writes before approval"
@@ -69,3 +70,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/brainstorming; visual companion scaffolding dropped; HARD-GATE and path ratchet kept as result constraints."
+  - "1.0.1 (2026-09-20): visual-companion drop documented in dependencies with the fallback path (SuperWork variant), so the asymmetry is discoverable at install time."

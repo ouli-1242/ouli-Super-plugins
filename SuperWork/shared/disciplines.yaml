@@ -1,0 +1,52 @@
+# 双变体（agents-skills 与 NB-skills）共享事实的唯一源。skill 正文引用这里的
+# 值而不是各自复述，策略改动只需改一处，而不是十七处。
+#
+# scripts/audit-docs.ps1 消费其中 artifact_types / root_docs / index_facade /
+# index_sections，其余供维护者阅读。引用本文件的正文自行保持数字同步——
+# 这里的值一变，同一次提交里更新引用它的 SKILL.md 正文。
+
+version: 1
+
+unconditional_disciplines:
+  - id: test-first
+    summary: "项目有测试套件，就必须先写失败测试再写生产代码；例外（一次性原型、生成代码、纯配置）需先问用户。"
+  - id: evidence-before-completion
+    summary: "本轮没有运行验证命令并读回输出，不得声称完成/通过/修好。"
+  - id: review-before-merge
+    summary: "任一阈值命中，即强制双轴评审（Standards + Spec）。"
+  - id: persist-and-register
+    summary: "产物存入 docs/ 对应类型目录并在 docs/文档导航.md 登记。只留在聊天里不算交付。"
+  - id: honest-boundary
+    summary: "完成声明附带未做/未验证清单（诚实边界）与偏离声明（实际与计划之差）；声称完成前先做红队自查。"
+
+review_thresholds:
+  # 任一命中即强制双轴代码评审
+  any_of:
+    - "核心模块被改动"
+    - "diff >= 15 个文件"
+    - "新引擎、API 或数据模型契约"
+
+artifact_types:
+  # docs/ 下的类型目录 -> 文件命名约定（见 doc-index skill）
+  调研:   "YYYY-MM-DD-<主题>.md"
+  设计:   "YYYY-MM-DD-<主题>-design.md（项目可覆盖；Status 行在最前）"
+  计划:   "YYYY-MM-DD-<feature-name>.md（Status 行在最前）"
+  日志:   "YYYY-MM-DD-<主题>.md"
+  审查:   "YYYY-MM-DD-<主题>.md"
+  交接:   "YYYY-MM-DD-交接与剩余任务.md"
+  实验:   "YYYY-MM-DD-<主题>.md"
+root_docs: [决策记录.md, 技术依据.md, 规范.md, 运行.md, 测试.md]
+index_facade: "docs/文档导航.md"
+index_sections: [当前进度, 活跃入口]
+draft_isolation: "设计/ 与 计划/ 只收已批准产物；草稿放 .scratch/ 或带 -draft 后缀"
+
+router_hard_rules:
+  # superwork 路由器（两个变体）的不变量
+  - "一个任务阶段对应一个 skill；阶段重叠时更早的生命周期阶段优先。"
+  - "绝不凭记忆路由。"
+  - "纪律绑定会话；豁免只跳过 skill，不跳过纪律。"
+  - "用户指令优先于路由；偏离必须声明。"
+
+variant_policy:
+  nb: "旗舰档模型的合同变体；安装时替代 agents-skills，绝不两者同装"
+  fallback: "每个 NB skill 的 fallback_variant 指向其 agents-skills 孪生版"

@@ -41,6 +41,7 @@ Make the requested change to an existing text while keeping everything else inta
   | 格式修复 | Layout/fonts/spacing/TOC | 文字内容 — formatting only |
 - **Route by the change**: wording-level on a closed file → edit directly or hand back text; document-scale layout repair → script it or wps-cli; the user's document is open in WPS while they watch → wps-cli, not a side copy that silently diverges.
 - **Verify the edit landed**: read the changed document back — requested change present, invariants intact, numbers/names/dates untouched.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: "顺手把这个数字也改准确点" (you cannot know the right number — flag it, don't edit it); moving conclusions while polishing the road; un-requested changes the user must now hunt for; claiming format fixed by eyeball.
 
 ## Acceptance Criteria
@@ -67,3 +68,7 @@ Make the requested change to an existing text while keeping everything else inta
 
 - Metrics: un-requested changes per revision (target 0), invariant violations (target 0), layout claims with rendered evidence (target 100%).
 - Log: flagged-not-edited issues listed for the user; "以后都按这个风格" → doc-asset profile update.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

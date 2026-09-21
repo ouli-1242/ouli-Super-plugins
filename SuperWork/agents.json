@@ -1,20 +1,27 @@
 {
-  "_comment": "Per-agent install targets for THIS pack. Each entry names the source folder inside this pack: 'agents-skills' = the one long-text folder every name+description harness shares, 'codex-skills' = the same text plus the Codex-only agents/openai.yaml, 'zcode-skills' = derived <=250-char descriptions for ZCode's metadata window. Several harnesses also scan the shared ~/.agents/skills root, so one install can reach many. Paths/fields verified against vendor docs (2026-09); unverified entries are skipped unless -VerifyPaths is passed.",
+  "_comment": "本包的各 agent 安装目标。每项指定包内的源文件夹：'agents-skills' = 所有按 name+description 发现 skill 的 harness 共用的长文本目录；'codex-skills' = 同样内容另加 Codex 专属的 agents/openai.yaml；'zcode-skills' = 派生版（描述 ≤250 字符，适配 ZCode 的元数据窗口）。多个 harness 还会扫描共享根 ~/.agents/skills，装一次即可覆盖多个端。路径/字段已对照厂商文档核实（2026-09）；未核实项默认跳过，除非传 -VerifyPaths。",
   "version": 3,
+  "reviewed": "2026-09-19",
+  "review_cycle_days": 90,
+  "model_tiers": {
+    "_comment": "哪个 harness 用哪个变体。NB = 合同变体（NB-skills/），适合对结果/边界约束响应最好的模型；default = 流程变体（agents-skills/），适合需要逐步过程指导的模型。给 NB 档 harness 安装用 install-skills.ps1 -Variant NB；一个 harness 只装一种变体，绝不混装。随模型演进，把 harness 名在两个列表之间移动。",
+    "nb": [],
+    "default": ["dsh", "claude", "codex", "zcode", "qoder", "cursor", "opencode", "codebuddy", "gemini", "grok", "kimi", "agents"]
+  },
   "agents": {
     "dsh": {
       "path": "%USERPROFILE%\\.dsh\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "name must match ^[a-z0-9]+(?:-[a-z0-9]+)*$; catalog description truncated at 500 chars; invalid frontmatter drops the skill silently",
+      "notes": "name 必须匹配 ^[a-z0-9]+(?:-[a-z0-9]+)*$；目录描述在 500 字符处截断；frontmatter 非法时整个 skill 被静默丢弃",
       "source": "@deepseek-ai/dsh-skill-filesystem README",
-      "verify": "skill_manager_list in a session"
+      "verify": "会话内执行 skill_manager_list"
     },
     "claude": {
       "path": "%USERPROFILE%\\.claude\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "frontmatter allows ONLY name, description, allowed-tools, compatibility, license, metadata - any other key errors; description+when_to_use truncated at 1536 chars",
+      "notes": "frontmatter 只允许 name、description、allowed-tools、compatibility、license、metadata——出现其他键直接报错；description+when_to_use 在 1536 字符处截断",
       "source": "code.claude.com/docs/en/skills",
       "verify": "claude -> /skills"
     },
@@ -22,81 +29,81 @@
       "path": "%USERPROFILE%\\.codex\\skills",
       "sourceFolder": "codex-skills",
       "verified": true,
-      "notes": "SKILL.md needs name + description; agents/openai.yaml (interface + optional policy.allow_implicit_invocation) is the Codex-only extra file",
+      "notes": "SKILL.md 需要 name + description；agents/openai.yaml（interface + 可选 policy.allow_implicit_invocation）是 Codex 专属附加文件",
       "source": "openai/codex skill-creator references/openai_yaml.md",
-      "verify": "codex -> the skills list; invoked as $skill-name"
+      "verify": "codex -> skill 列表；以 $skill-name 调用"
     },
     "zcode": {
       "path": "%USERPROFILE%\\.zcode\\skills",
       "sourceFolder": "zcode-skills",
       "verified": true,
-      "notes": "description >1024 DROPS the skill; per-turn metadata injects only the first 250 chars of each description, and the metadata set shares one budget (past it only names are injected)",
+      "notes": "description >1024 会丢弃整个 skill；每轮元数据只注入每条描述的前 250 字符，且元数据集合共享一个预算（超预算后只注入名称）",
       "source": "https://zcode.z.ai/cn/docs/skill",
-      "verify": "ZCode -> Settings -> Skills -> Refresh; invoke with $skill-name"
+      "verify": "ZCode -> 设置 -> Skills -> 刷新；以 $skill-name 调用"
     },
     "qoder": {
       "path": "%USERPROFILE%\\.qoder-cn\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "name: lowercase/digits/hyphens, <=64 chars; description <=1024; project-level .qoder/skills overrides user level",
+      "notes": "name：小写字母/数字/连字符，≤64 字符；description ≤1024；项目级 .qoder/skills 覆盖用户级",
       "source": "https://help.aliyun.com/zh/lingma/skills",
-      "verify": "/skills inside Qoder CN CLI"
+      "verify": "Qoder CN CLI 内执行 /skills"
     },
     "cursor": {
       "path": "%USERPROFILE%\\.cursor\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "also discovers .cursor/skills and .agents/skills in nested project subdirectories, scoped to that subtree",
+      "notes": "还会发现嵌套项目子目录中的 .cursor/skills 与 .agents/skills，作用域限于该子树",
       "source": "https://cursor.com/docs/context/skills",
-      "verify": "Cursor settings -> Skills; a skill must sit at <root>/<name>/SKILL.md"
+      "verify": "Cursor 设置 -> Skills；skill 必须位于 <root>/<name>/SKILL.md"
     },
     "opencode": {
       "path": "%USERPROFILE%\\.config\\opencode\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "recognizes name, description, license, compatibility, metadata only; description 1-1024 chars; name <=64, no leading/trailing hyphen, no '--'; also reads ~/.claude/skills and ~/.agents/skills",
+      "notes": "只识别 name、description、license、compatibility、metadata；description 1-1024 字符；name ≤64、首尾无连字符、不含 '--'；另读取 ~/.claude/skills 与 ~/.agents/skills",
       "source": "https://opencode.ai/docs/skills/",
-      "verify": "opencode skill list"
+      "verify": "opencode skill 列表"
     },
     "codebuddy": {
       "path": "%USERPROFILE%\\.codebuddy\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "name/description optional (directory name is the fallback); supports allowed-tools, disable-model-invocation, context, model but none are required",
+      "notes": "name/description 可选（目录名兜底）；支持 allowed-tools、disable-model-invocation、context、model，均非必需",
       "source": "https://www.codebuddy.ai/docs/zh/cli/skills",
-      "verify": "CodeBuddy skills panel"
+      "verify": "CodeBuddy skills 面板"
     },
     "gemini": {
       "path": "%USERPROFILE%\\.gemini\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "discovery injects name + description into the system prompt; activation goes through the activate_skill tool with a user consent prompt",
+      "notes": "发现时把 name + description 注入系统提示；激活经 activate_skill 工具并带用户确认提示",
       "source": "https://geminicli.com/docs/cli/skills/",
-      "verify": "/skills list inside Gemini CLI"
+      "verify": "Gemini CLI 内执行 /skills"
     },
     "grok": {
       "path": "%USERPROFILE%\\.grok\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "discovers ./.grok/skills (walked up), ~/.grok/skills, ~/.agents/skills, plus Claude Code marketplaces/plugins; unknown frontmatter keys ignored; supports when-to-use and disable-model-invocation",
+      "notes": "发现 ./.grok/skills（向上回溯）、~/.grok/skills、~/.agents/skills，以及 Claude Code 市场/插件；未知 frontmatter 键忽略；支持 when-to-use 与 disable-model-invocation",
       "source": "https://docs.x.ai/build/features/skills-plugins-marketplaces",
-      "verify": "grok -> skills listing / slash command"
+      "verify": "grok -> skills 列表 / 斜杠命令"
     },
     "kimi": {
       "path": "%USERPROFILE%\\.kimi-code\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "user tier = $KIMI_CODE_HOME/skills (default ~/.kimi-code/skills) and ~/.agents/skills; project tier = .kimi-code/skills and .agents/skills; name/description optional; invoked as /skill:<name>",
+      "notes": "用户级 = $KIMI_CODE_HOME/skills（默认 ~/.kimi-code/skills）与 ~/.agents/skills；项目级 = .kimi-code/skills 与 .agents/skills；name/description 可选；以 /skill:<name> 调用",
       "source": "https://www.kimi.com/code/docs/kimi-code-cli/customization/skills.html",
-      "verify": "/skills inside Kimi Code CLI"
+      "verify": "Kimi Code CLI 内执行 /skills"
     },
     "agents": {
       "path": "%USERPROFILE%\\.agents\\skills",
       "sourceFolder": "agents-skills",
       "verified": true,
-      "notes": "shared cross-tool root: scanned by DSH (rank 500), Cursor, opencode, Kimi, Grok and others - install once here to reach them all",
-      "source": "vendor docs of DSH / Cursor / opencode / Kimi / Grok",
-      "verify": "same as dsh"
+      "notes": "跨工具共享根：DSH（rank 500）、Cursor、opencode、Kimi、Grok 等都会扫描——在这里装一次即可覆盖全部",
+      "source": "DSH / Cursor / opencode / Kimi / Grok 厂商文档",
+      "verify": "同 dsh"
     }
   }
 }

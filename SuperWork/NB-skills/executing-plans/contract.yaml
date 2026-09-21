@@ -1,6 +1,6 @@
 id: "NB-skills/executing-plans"
 name: "executing-plans"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Execute an approved plan task by task with fresh verification per step and disk-based progress recovery; no improvisation."
@@ -38,6 +38,7 @@ output_contract:
 constraints:
   - "Status line gates execution (draft -> approval; completed -> confirm reopen)"
   - "Use the plan's Interfaces block names exactly; resume from disk (boxes + git log), never memory"
+  - "Finish chain on completion: code-review -> verification-before-completion -> finishing-a-development-branch, invoked in that order"
 forbidden:
   - "Skipping or inventing verification steps"
   - "Force through blockers; batch-checking boxes"
@@ -68,3 +69,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/executing-plans; step narrative dropped; status gating, disk resume, and log slots kept as contract."
+  - "1.0.1 (2026-09-20): completion handoff chain (code-review -> verification-before-completion -> finishing-a-development-branch) restored as an explicit constraint; was only implied by dependencies."

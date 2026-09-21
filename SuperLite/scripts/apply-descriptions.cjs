@@ -1,30 +1,32 @@
 #!/usr/bin/env node
-// Apply canonical descriptions from scripts/descriptions.json to every SKILL.md.
+// 将 scripts/descriptions.json 中的规范描述应用到每个 SKILL.md。
 //
-//   node scripts/apply-descriptions.cjs            # dry run: report only
-//   node scripts/apply-descriptions.cjs --write    # rewrite the description lines
+//   node scripts/apply-descriptions.cjs            # 干跑：只报告
+//   node scripts/apply-descriptions.cjs --write    # 重写 description 行
 //
-// Enforced before any write:
-//   * every skill directory in every pack has an entry (no stale/short spec)
-//   * the Chinese trigger anchors END before `maxChineseAt` characters, because
-//     ZCode injects only the first 250 chars of a description into the model
-//     context; past that the trigger words never reach the model
-//   * total length <= `maxTotal` (keeps DSH's 500-char cap non-binding)
-//   * the value opens with a "Use when/BEFORE/while" trigger phrase
-//   * the value contains Chinese
-// The description is written as one double-quoted, backslash-escaped YAML line.
+// 写盘前强制校验：
+//   * 每个包的每个 skill 目录都有对应条目（不允许缺失/过期的 spec）
+//   * 中文触发锚点必须结束于 `maxChineseAt` 字符之前——ZCode 每轮只把描述的
+//     前 250 字符注入模型上下文，超过部分触发词永远到不了模型
+//   * 总长 <= `maxTotal`（保证 DSH 的 500 字符上限不起约束）
+//   * 值以 "Use when/BEFORE/while" 触发短语开头
+//   * 值包含中文
+// 描述以单行双引号、转义反斜杠的 YAML 行写入。
 
 const fs = require('fs');
 const path = require('path');
 
-// Self-contained: this pack owns scripts/descriptions.json (the single source of\n// truth for the LONG descriptions - full triggers, exclusions and cross-skill\n// pointers). The text is applied to this pack's own skills/; the only derived\n// short form is ZCode's, generated at build time by build-agent-skills.cjs.\n// Length policy: total <= maxTotal (1024, the tightest vendor cap); the Chinese\n// trigger anchors do NOT have to sit in the first 250 chars here - ZCode reads a\n// derived text instead.
+// 自包含：本包拥有 scripts/descriptions.json（长描述的唯一事实源——完整触发词、
+// 排除项与跨 skill 指针）。文本只应用到本包自己的 agents-skills/；唯一的派生
+// 短版是 ZCode 的，由 build-agent-folders.cjs 在构建时生成。
+// 长度策略：总长 <= maxTotal（1024，各端最紧的公布上限）；中文触发锚点在此
+// 不必落进前 250 字符——ZCode 读的是派生文本。
 const PACK_DIR = path.resolve(__dirname, '..');
 const OWN_PACK = path.basename(PACK_DIR);
-const SKILLS_DIR = path.join(PACK_DIR, 'agents-skills');   // the canonical source
+const SKILLS_DIR = path.join(PACK_DIR, 'agents-skills');   // 规范源
 const spec = JSON.parse(fs.readFileSync(path.join(__dirname, 'descriptions.json'), 'utf8'));
 
-// Accept both "skill-name" and "Pack/skill-name" keys so one spec file can be
-// shared or split without editing.
+// 同时接受 "skill-name" 与 "Pack/skill-name" 两种键，一个 spec 文件即可共享或拆分。
 const desc = {};
 for (const [k, v] of Object.entries(spec.descriptions)) {
     desc[k.includes('/') ? k : OWN_PACK + '/' + k] = v;
@@ -47,7 +49,7 @@ function yamlQuote(value) {
     return '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
-// ---- 1. spec validation ----
+// ---- 1. spec 校验 ----
 const seen = new Set();
 for (const name of fs.readdirSync(SKILLS_DIR)) {
     const file = path.join(SKILLS_DIR, name, 'SKILL.md');
@@ -72,7 +74,7 @@ if (problems.length) {
     process.exit(1);
 }
 
-// ---- 2. apply ----
+// ---- 2. 应用 ----
 {
     for (const name of fs.readdirSync(SKILLS_DIR)) {
         const file = path.join(SKILLS_DIR, name, 'SKILL.md');

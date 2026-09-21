@@ -1,6 +1,6 @@
 id: "NB-skills/doc-revise"
 name: "doc-revise"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Make the requested change to an existing text while preserving declared invariants; verify the edit landed with evidence."
@@ -62,3 +62,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-revise; mode/invariant table kept as the constraint core."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

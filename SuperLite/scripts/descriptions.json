@@ -1,5 +1,5 @@
 {
-  "_comment": "Canonical (LONG) descriptions for this pack - the single source of truth. Full trigger text, negative exclusions and cross-skill pointers all live here; there is no compressed canonical variant. ZCode, whose per-turn metadata injects only the first 250 chars, gets a derived short form generated at build time by build-agent-skills.cjs - never hand-maintained.",
+  "_comment": "本包的规范（长）描述——唯一事实源。完整触发文本、负向排除与跨 skill 指针都在这里；没有压缩版的规范变体。ZCode 的每轮元数据只注入描述前 250 字符，其派生短版由 build-agent-folders.cjs 在构建时生成——绝不手工维护。",
   "maxTotal": 1024,
   "descriptions": {
     "SuperLite/code-review": "Use when reviewing changes before merge or delivery - the user asks to review a branch, PR, or work-in-progress changes (\"review\", \"评审一下这次的改动\", \"检查下改动\"), or the change is large enough that review is mandatory before merging to mainline: core module touched, diff >= 15 files, or new engine/API/data-model contracts. Typically after implementation (tdd) and before declaring completion.",

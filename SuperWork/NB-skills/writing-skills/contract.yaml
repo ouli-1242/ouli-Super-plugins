@@ -1,6 +1,6 @@
 id: "NB-skills/writing-skills"
 name: "writing-skills"
-version: "1.0.0"
+version: "1.0.2"
 owner: "ouli"
 status: "active"
 purpose: "Apply TDD to process documentation - baseline failure first, minimal skill, loophole closing, one tested skill at a time."
@@ -28,7 +28,7 @@ confirmation_required:
 input_contract:
   required: "the skill idea/defect to fix, or the retro request"
   optional: "neighboring skills for exclusion wording"
-  missing_behavior: "no observed failure -> do not write the skill"
+  missing_behavior: "no observed failure -> do not write the skill; 'no fitting skill for this session' goes to docs/skill-gaps.md and needs 3 independent occurrences to qualify as a proposal"
 output_contract:
   format: "skill with SDO description (triggers only, Use when + Chinese anchors + NOT-for neighbors) and body in the failure-appropriate form; registered in the superwork index if lifecycle-stage"
   quality: "baseline red -> green -> loopholes closed; body <=8KB"
@@ -65,3 +65,5 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/writing-skills; form-follows-failure table kept; registration target updated to the superwork router."
+  - "1.0.1 (2026-09-20): skill-gap log wired in (docs/skill-gaps.md, 3-occurrence bar) so the Iron Law has an observation channel instead of only a refusal."
+  - "1.0.2 (2026-09-21): description rule extended - zero maintainer-facing content (provenance, single-source pointers, changelog belong in contract.yaml); every description character serves triggering."

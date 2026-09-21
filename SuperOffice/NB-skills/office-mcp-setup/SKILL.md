@@ -40,6 +40,7 @@ Get the office environment ready so the verb skills can do real work — startin
 - **Selection quick-reference** (full catalog: `references/mcp-catalog.md`): WPS installed + live control → **wps-cli** (COM, JSON output, built-in MCP); MS Office + live control → **OfficeMCP**; batch parsing → **markitdown-mcp**.
 - **Credentials**: keys go only into the config file or an env file it references — never into the conversation.
 - **A configured MCP is not a working MCP**: after every entry, trigger the server's tool listing through the agent and run one real minimal operation (scratch document, tiny conversion). Verification fails → check the server's log, fix, re-verify. Never report "配置好了" on an unverified entry.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: "MCP 多配几个总没错" (every entry is a permanent failure surface and a discovery-slot cost — configure the need, not the catalog).
 
 ## Acceptance Criteria
@@ -66,3 +67,7 @@ Get the office environment ready so the verb skills can do real work — startin
 
 - Metrics: entries without a diagnosed need (target 0), unverified "配置好了" claims (target 0), duplicate entries.
 - Log: `docs/环境清单.md` is the registry — it makes the setup reproducible on a new machine.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

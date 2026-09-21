@@ -34,6 +34,7 @@ Convert, merge, split, extract, and recover office files with the discipline in 
 - **Route by operation**: Office/PDF → Markdown text → markitdown-mcp if configured, else the document skills' Python route; scanned/photo table → GLM-OCR glmocr-table (handles merged cells) then data-report for the numbers; PDF merge/split/extract → PDF tooling (document skills' pdf route or wps-cli pdf); docx↔pdf layout-critical → wps-cli export (WPS renders as the user's WPS would print); batch rename → **dry-run listing first** (old → new), show the user, then execute.
 - **Trial single, then batch**: run the operation on one file, verify it fully, then scale with per-file success checks and a failure list. Batch without a single-file proof converts 60 files into 60 broken files.
 - **Verify fidelity, not existence** — "a file came out" proves nothing. Against the Step-1 contract: structure (page/sheet/row counts match, stated both sides); tables (spot-check 2–3 rows, merged cells survived or flagged); **OCR**: every recognized table spot-checked against the original image; amounts, dates, ID numbers go on the 人工确认清单 even when recognition looks confident — handwriting and low scans lie convincingly, and recognition confidence is a hint, never an assertion; layout-critical → rendered evidence.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: silent fallback to lower fidelity when a needed engine is missing (say so and offer office-mcp-setup); renaming without a dry-run; trusting "转换成功了，内容肯定没变".
 
 ## Acceptance Criteria
@@ -61,3 +62,7 @@ Convert, merge, split, extract, and recover office files with the discipline in 
 
 - Metrics: fidelity failures found after delivery (target 0), OCR fields requiring manual correction, batches run without single-file proof (target 0).
 - Log: fidelity statement per job; recurring conversion needs → office-mcp-setup / doc-asset.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

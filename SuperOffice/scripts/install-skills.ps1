@@ -5,6 +5,7 @@
 #   pwsh -NoProfile -File scripts/install-skills.ps1 -Agent dsh,claude
 #   pwsh -NoProfile -File scripts/install-skills.ps1 -Agent all -IncludeOptional
 #   pwsh -NoProfile -File scripts/install-skills.ps1 -Agent codex -Copy
+#   pwsh -NoProfile -File scripts/install-skills.ps1 -Agent claude -Variant NB   # frontier-model contract variant
 #
 # Why this exists: agents discover skills by <targetPath>/<name>/SKILL.md. Copying
 # by hand created drifting snapshots of the same pack; the default -Link mode makes
@@ -26,7 +27,10 @@ param(
     [switch]$IncludeOptional,
     [switch]$DryRun,
     [switch]$VerifyPaths,
-    [switch]$Force
+    [switch]$Force,
+    [ValidateSet('default', 'NB')]
+    [string]$Variant = 'default',
+    [switch]$StrictRisk
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +58,36 @@ $bundle = Get-Content -LiteralPath $bundlePath -Raw -Encoding UTF8 | ConvertFrom
 $srcRoot = Join-Path $PackRoot 'agents-skills'   # the canonical folder for name+description harnesses
 if (-not (Test-Path -LiteralPath $srcRoot)) { throw "agents-skills/ not found in $PackRoot" }
 
+# -Variant NB: source every skill from NB-skills/ (contract variant) instead of
+# the per-agent folder. Same skill names, so a target may hold EITHER variant,
+# never both - the duplicate-name report below already guards that.
+$variantFolder = $null
+if ($Variant -eq 'NB') {
+    $variantFolder = Join-Path $PackRoot 'NB-skills'
+    if (-not (Test-Path -LiteralPath $variantFolder)) { throw "NB-skills/ not found in $PackRoot" }
+}
+
+# Risk-tier visibility: with -Variant NB, read each skill's risk_level from its
+# contract.yaml and surface L2 skills before touching anything. -StrictRisk
+# requires -Force to proceed when any L2 skill is in the install set.
+$skillRisk = @{}
+if ($variantFolder) {
+    foreach ($s in @($bundle.skills) + @($bundle.optional)) {
+        $cf = Join-Path $variantFolder "$s\contract.yaml"
+        $skillRisk[$s] = 'L1'
+        if (Test-Path -LiteralPath $cf) {
+            $m = [regex]::Match((Get-Content -LiteralPath $cf -Raw -Encoding UTF8), '(?m)^risk_level:\s*"?(L\d)')
+            if ($m.Success) { $skillRisk[$s] = $m.Groups[1].Value }
+        }
+    }
+    $l2 = @($bundle.skills | Where-Object { $skillRisk[$_] -eq 'L2' })
+    if ($IncludeOptional) { $l2 += @($bundle.optional | Where-Object { $skillRisk[$_] -eq 'L2' }) }
+    if ($l2.Count -gt 0) {
+        Write-Output "L2 risk skills in this install: $($l2 -join ', ')"
+        if ($StrictRisk -and -not $Force) { throw "L2 skills present ($($l2 -join ', ')); pass -Force to confirm, or drop -StrictRisk" }
+    }
+}
+
 $wanted = @()
 foreach ($raw in $Agent) {
     foreach ($a in ($raw -split ',')) {
@@ -72,8 +106,8 @@ foreach ($a in $wanted) {
 }
 
 Write-Output "Pack        : $($bundle.name)  ($($bundle.skills.Count) core + $(@($bundle.optional).Count) optional)"
-Write-Output "Source      : $srcRoot"
-Write-Output "Mode        : $(if ($Link) { 'link (junction)' } else { 'copy' })$(if ($DryRun) { ' [DRY RUN]' })"
+Write-Output "Source      : $(if ($variantFolder) { $variantFolder } else { $srcRoot })"
+Write-Output "Mode        : $(if ($Link) { 'link (junction)' } else { 'copy' })$(if ($DryRun) { ' [DRY RUN]' })$(if ($variantFolder) { ' [VARIANT: NB - replaces agents-skills, never install both]' })"
 Write-Output ''
 
 $globalIssues = @()
@@ -93,6 +127,7 @@ foreach ($a in $wanted) {
     # zcode-skills (derived <=250-char descriptions).
     $agentSrc = Join-Path $PackRoot $entry.sourceFolder
     if (-not (Test-Path -LiteralPath $agentSrc)) { $agentSrc = $srcRoot }
+    if ($variantFolder) { $agentSrc = $variantFolder }
     Write-Output "=== $a -> $target   [source: $(Split-Path $agentSrc -Leaf)] ==="
 
     if (-not (Test-Path -LiteralPath $target)) {

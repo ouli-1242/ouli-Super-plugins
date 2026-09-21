@@ -39,6 +39,7 @@ Fill a fixed form by mapping **material → fields** without invention. The core
 - **Fill on a working copy** of the original; route by form type (Excel/PDF → Python route; open in WPS → wps-cli; scanned paper → file-ops OCR first, expect lower field confidence).
 - **Verify field by field** against the mapping table: value matches source, format matches the form's requirement (dates, units, decimals). Key fields — amounts, dates, ID/证号, names — get a second independent check.
 - Every required field filled or explicitly flagged to the user — a required field left empty bounces the whole form.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: "这个字段大概填这个不会错" (official forms have no 大概); ignoring format rules the form itself states (date style and 千分位 rejections are the top resubmission reason).
 
 ## Acceptance Criteria
@@ -65,3 +66,7 @@ Fill a fixed form by mapping **material → fields** without invention. The core
 
 - Metrics: fields filled without source (target 0), format rejections on submission, resubmissions caused by wrong values (target 0).
 - Log: the mapping table archives with the form; recurring form types → doc-asset (save the mapping conventions, not just the form).
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

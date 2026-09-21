@@ -8,7 +8,8 @@
 
 - skill 名与触发 description 与 `agents-skills/` 相同（保留中文触发锚点），**同一 harness 二选一安装**，勿与父包同装。
 - 结构：`NB-skills/<skill>/SKILL.md + contract.yaml`，无构建脚本、无派生目录——本目录即唯一源。
-- 安装：把 `NB-skills/<skill>` junction/复制进目标 harness 的 skills 目录（如 `~/.claude/skills/`）。
+- 安装：`pwsh -File scripts\install-skills.ps1 -Agent claude -Variant NB`（加 `-IncludeOptional` 含 office-mcp-setup / wps-cli；或手动 junction `NB-skills/<skill>` 进目标 harness 的 skills 目录）。
+- 一致性护栏：`pwsh -File scripts\validate-nb.ps1` 校验每对 SKILL.md/contract.yaml 的同步（id、fallback_variant、引用路径、依赖 skill 名）。
 
 ## 特性
 
@@ -100,14 +101,22 @@ SuperOffice\
 ├── agents-skills\             # ★ 唯一源：12 个 skill 的长描述（多端通用）
 ├── zcode-skills\              # 派生：短描述（ZCode 专属）
 ├── codex-skills\              # 派生：+ agents/openai.yaml（Codex 专属）
-├── agents.json                # 各 agent 的 skills 目录登记
-├── bundle.json                # 核心 10 个 + 可选 2 个
+├── agents.json                # 各 agent 的 skills 目录登记 + model_tiers（变体选择）+ 复核日期
+├── bundle.json                # 核心 10 个 + 可选 2 个 + NB 变体声明
+├── shared\
+│   └── disciplines.yaml       # 单源：四条办公纪律、产物类型/命名、路由硬规则
+├── evals\                     # 基线证据存档（RED/GREEN，见 evals/README.md）
+├── docs\
+│   └── skill-gaps.md          # skill 缺口观察日志（先查 asset，再议新动词）
 ├── scripts\
 │   ├── descriptions.json      # 描述唯一源（长）
 │   ├── apply-descriptions.cjs # descriptions.json -> agents-skills/
-│   ├── build-agent-folders.cjs# agents-skills/ -> zcode-skills/ + codex-skills/
-│   ├── install-skills.ps1     # 安装器（默认 junction 链接）
-│   ├── validate-multi.ps1     # 多端合规校验
+│   ├── build-agent-folders.cjs# agents-skills/ -> zcode-skills/ + codex-skills/；--check 做真实内容对账
+│   ├── install-skills.ps1     # 安装器（默认 junction；-Variant NB 装合同版；-StrictRisk 拦 L2）
+│   ├── validate-multi.ps1     # 多端合规校验（-AllTargets 含 NB-skills）
+│   ├── validate-nb.ps1        # NB-skills 合同/正文同步 + 双变体规则对账
+│   ├── audit-docs.ps1         # 项目 docs/ 与办公资产索引一致性审计
+│   ├── check-contract-review.ps1 # contract review_cycle 到期报告（-FailOnDue 可拦）
 │   └── normalize-skills.ps1   # frontmatter/H1 规范化（幂等）
 └── README.md
 ```
@@ -115,7 +124,18 @@ SuperOffice\
 ## 平台依赖与已知边界
 
 - 默认开发机是 Windows + WPS/MS Office；`wps-cli` 依赖 Windows COM 与本机 WPS；markitdown-mcp 需 Python。首次装机先跑 `office-mcp-setup` 的诊断。
-- 已知边界：全部 description 按 SDO 原则编写但未做压力测试基线；`wps-cli` 的命令面以本机 `--help` 为准，首次真实运行时应逐工作流验证；IM 通道类 MCP（飞书 / 企微 / 钉钉）已审核未配置，按需启用。
+- 已知边界：全部 description 按 SDO 原则编写但未做压力测试基线（基线证据开始记录到 `evals/`）；`wps-cli` 的命令面以本机 `--help` 为准，首次真实运行时应逐工作流验证；IM 通道类 MCP（飞书 / 企微 / 钉钉）已审核未配置，按需启用。
+- 同一 harness 内按任务切换模型（如 `/model`）时，skill 变体是静态安装产物，无法跟随模型动态切换——变体按 harness 的主力模型在 `agents.json` 的 `model_tiers` 里登记，换主力模型即重装对应变体。
+
+## 维护
+
+```powershell
+node scripts\build-agent-folders.cjs --check          # 派生目录内容对账（真实 diff）
+pwsh -File scripts\validate-multi.ps1 -AllTargets     # 多端合规
+pwsh -File scripts\validate-nb.ps1                    # NB 合同/正文 + 双变体规则对账
+pwsh -File scripts\check-contract-review.ps1          # contract 到期审查
+pwsh -File scripts\audit-docs.ps1 -ProjectRoot <项目路径>  # 项目 docs/ 与办公资产索引一致性
+```
 
 ## 许可
 

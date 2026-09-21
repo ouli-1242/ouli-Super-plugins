@@ -37,6 +37,7 @@ Read material someone else produced and produce **findings**, not edits — prob
 - **Read the entire artifact once before flagging anything** — a problem on page 8 may recontextualize page 2.
 - Four axes: **事实准确** (numbers that don't sum, conflicting dates, wrong names/titles, impossible citations), **逻辑结构** (conclusions unsupported, sections answering a different question, contradictions), **格式规范** (departure from the unit's template, missing required elements, numbering/TOC breaks), **风险措辞** (unqualified commitments 「保证/确保无遗漏」, ambiguous scope 「等等」, missing deadlines/owners, counterparty-exploitable wording).
 - State uncertainty as uncertainty — "无法核实此数字" is a finding; a guess is not.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: silently "fixing" a probable typo (reviewers locate; owners correct — the author may have intended that version); skipping a clause because it's hard to understand (「条款含义不明，建议请法务确认」 IS the deliverable); inline-editing text under the guise of review.
 
 ## Acceptance Criteria
@@ -63,3 +64,7 @@ Read material someone else produced and produce **findings**, not edits — prob
 
 - Metrics: findings later disputed (false-positive rate), missed issues found by later readers, inline-edit occurrences (target 0).
 - Log: the findings list is the record; accepted findings become doc-revise work orders.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

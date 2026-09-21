@@ -48,6 +48,7 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 - **Non-code deliverables**: the Iron Law applies to any work — re-read the document against its stated purpose and outline; re-check every number in the analysis against its source; confirm the file exists at the path you claim.
 - Red-team self-check before "done", answered out loud: How could this be wrong? What did I NOT verify (→ 诚实边界)? What actually happened vs what was planned (→ 偏离声明)? What would break in real use (non-code: the reader who wasn't in the room, the number quoted out of context)?
 - An honest "I don't know" goes into the deliverable's or handoff's 诚实边界 — never buried.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: satisfaction before verification; "just this once"; assuming different wording exempts the rule (violating the letter is violating the spirit).
 
 ## Acceptance Criteria
@@ -74,3 +75,7 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 
 - Metrics: unevidenced completion claims (target 0), 诚实边界 presence rate, user-caught false claims.
 - Log: evidence + 诚实边界 + 偏离声明 into the deliverable or handoff; discipline deviations to `docs/日志/` when a project exists.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

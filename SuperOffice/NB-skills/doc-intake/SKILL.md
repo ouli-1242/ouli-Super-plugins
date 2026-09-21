@@ -36,6 +36,7 @@ Digest material someone else produced into one of a few fixed product shapes —
 - **Read the source completely, once, before extracting** — partial reading produces partial minutes that look complete; decisions hide in the last ten minutes.
 - Every decision, number, name, date gets a source anchor. Anything inaudible/ambiguous/missing → `[待确认]`. A gap marked is honest work; a gap filled from imagination is fabrication.
 - Numbers in the product must be findable in the source — if you cannot find one, delete it or mark `[待确认]`.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: filling gaps from context plausibility; dropping attribution ("发言人都熟"); exceeding the reader's length limit.
 
 ## Acceptance Criteria
@@ -62,3 +63,7 @@ Digest material someone else produced into one of a few fixed product shapes —
 
 - Metrics: unanchored claims (target 0), unfilled-owner action items (target 0), `[待确认]` resolution rate.
 - Log: source archive path recorded in the product (来源 slot); intake products are inputs, not endpoints — minutes seed doc-draft, extracted facts feed data-report, "沉淀成我们的格式" → doc-asset.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

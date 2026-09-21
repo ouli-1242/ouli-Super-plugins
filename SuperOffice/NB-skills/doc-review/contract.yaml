@@ -1,6 +1,6 @@
 id: "NB-skills/doc-review"
 name: "doc-review"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Assess someone else's material on four axes and produce precisely located findings, never edits."
@@ -63,3 +63,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-review; four-axis + four-element findings kept as the contract."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

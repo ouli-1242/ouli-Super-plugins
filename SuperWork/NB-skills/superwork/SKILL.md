@@ -1,6 +1,6 @@
 ---
 name: superwork
-description: "Use when starting any conversation or receiving any coding task - the entry-point router that decides which NB-skills skill applies BEFORE any other action, and binds the unconditional disciplines to the session. 中文任务同样适用（加功能、修 bug、写代码、做计划、执行计划、评审、合并、查文档）。Only routes and arbitrates; the method lives in each domain skill. NOT a process manual."
+description: "Use when starting any conversation or receiving any coding task - the entry-point router that decides which NB-skills skill applies BEFORE any other action, and binds the unconditional disciplines to the session. 中文任务同样适用（加功能、修 bug、写代码、做计划、执行计划、评审、合并、查文档）。Only routes and arbitrates; the method lives in each domain skill. NOT a process manual. Exempt: pure Q&A, trivial one-line edits, explicit user opt-out - answer directly (disciplines still bind)."
 ---
 # SuperWork — Coding Lifecycle Router and Discipline Binding
 
@@ -12,7 +12,7 @@ Route the current task to the right domain skill and bind the five unconditional
 
 - Use at the start of any coding session or task: route first, act second.
 - Use when several skills seem to apply: it arbitrates the overlap.
-- Do NOT use when the task already clearly matches one domain skill (invoke that skill directly), for pure Q&A, trivial one-line edits, or when the user opted out of skills.
+- Do NOT use when the task already clearly matches one domain skill (invoke that skill directly), for pure Q&A, trivial one-line edits, or when the user opted out of skills (answer directly; the five disciplines still bind — see `references/exemptions.md`).
 
 ## Capability Index (L0)
 
@@ -46,6 +46,7 @@ Route the current task to the right domain skill and bind the five unconditional
 - Required: the current task description.
 - Optional: existing artifact state (spec / plan / review report / handoff doc paths).
 - If missing/ambiguous: ask ONE clarifying question, then route. Never route from memory.
+- If the task is a direct-answer exemption (pure Q&A, trivial edit, user opt-out per `references/exemptions.md`): answer directly without loading a skill; the disciplines below still apply.
 
 ## Output Contract
 

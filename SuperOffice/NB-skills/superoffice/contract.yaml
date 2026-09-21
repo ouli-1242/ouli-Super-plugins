@@ -1,6 +1,6 @@
 id: "NB-skills/superoffice"
 name: "superoffice"
-version: "1.0.0"
+version: "1.0.2"
 owner: "ouli"
 status: "active"
 purpose: "Route office tasks to verb skills and bind the four office disciplines; the verb layer is finite, specialization lives in assets."
@@ -28,6 +28,7 @@ input_contract:
   required: "the office task as stated"
   optional: "existing artifacts, templates, asset index"
   missing_behavior: "resolve by workflow position (input < draft < revise < review); still unclear, ask one question"
+  exemption_behavior: "trivial one-line edits (typo, rename) are done directly without routing; the four disciplines still bind"
 output_contract:
   format: "routing statement (verb + skill + reason); multi-verb chains declared explicitly"
   quality: "one verb at a time; chains stated up front"
@@ -63,3 +64,5 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/superoffice; verb table kept as L0 index; four disciplines kept verbatim."
+  - "1.0.1 (2026-09-20): trivial-edit exemption surfaced into the description and input contract, matching the When-to-Use exemption line."
+  - "1.0.2 (2026-09-21): disciplines now cite shared/disciplines.yaml as the single source of truth."

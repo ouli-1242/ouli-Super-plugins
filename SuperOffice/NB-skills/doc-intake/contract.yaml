@@ -1,6 +1,6 @@
 id: "NB-skills/doc-intake"
 name: "doc-intake"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Turn messy external input into fixed-shape structured products with per-claim source anchors; extraction, never creation."
@@ -62,3 +62,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/doc-intake; minutes slots kept as output contract; anti-rationalization table folded into prohibitions."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

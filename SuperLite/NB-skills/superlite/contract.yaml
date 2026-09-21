@@ -1,6 +1,6 @@
 id: "NB-skills/superlite"
 name: "superlite"
-version: "1.0.0"
+version: "1.0.2"
 owner: "ouli"
 status: "active"
 purpose: "Route daily/simple-project tasks to the right domain skill, keep one-offs ceremony-free, and bind five unconditional disciplines."
@@ -29,6 +29,7 @@ input_contract:
   required: "current task description"
   optional: "whether a project (docs/ spine) exists"
   missing_behavior: "ask one clarifying question, then route"
+  exemption_behavior: "pure Q&A, trivial edits, and explicit user opt-out are answered directly without routing; the five disciplines still bind"
 output_contract:
   format: "routing statement + invoke, OR direct answer via the declared daily lane"
   quality: "one task one skill; one-offs ceremony-free"
@@ -65,3 +66,5 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/superlite; route table reduced to L0 index; daily one-off lane and project-conditioned persistence kept."
+  - "1.0.1 (2026-09-20): direct-answer exemptions surfaced into the description and input contract, matching the exemptions paragraph in the constraints section."
+  - "1.0.2 (2026-09-21): disciplines now cite shared/disciplines.yaml as the single source of truth."

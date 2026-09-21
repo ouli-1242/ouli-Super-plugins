@@ -32,7 +32,7 @@ All verb skills are shipped. If a named skill is missing from the installed set 
 
 ## Unconditional Disciplines
 
-These bind even when no skill is loaded:
+These bind even when no skill is loaded (canonical values: `shared/disciplines.yaml`; the four below restate them):
 
 1. **数字与引用真实性。** Every number comes from a user-provided file or a tool computation — never invented, never estimated silently. Every citation/reference must come from real retrieval, never generated. Missing data → mark `[待核实]` and ask. Full method lands with `data-report` / `doc-draft`.
 2. **模板优先。** Before drafting any document, ask for or look up the unit's/personal template or a past sample (this is `doc-asset`'s purpose). No template → confirm the structure with the user before writing. Never invent an organization's format from imagination.

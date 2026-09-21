@@ -36,6 +36,7 @@ Execute an approved plan task by task with fresh verification per step, restorin
 - Read each task's **Interfaces** block and use those exact names; a task's implementer sees only that task. Never invent names that differ from it.
 - Follow the plan's steps exactly — deviation decisions were already made in the plan. A step without fresh verification evidence is not done.
 - **Resume from disk only**: position = plan's checked boxes + git log. Never from memory. Re-read the current task before continuing.
+- **Finish handoff chain**: when every task is checked off, update the plan's status line to `completed`, then invoke `code-review`, then `verification-before-completion`, then `finishing-a-development-branch` — in that order, each explicitly. Never skip from "last box checked" straight to "done".
 - Prohibited: implementing on main/master without explicit user consent; batch-checking boxes without running the verifications.
 
 ## Acceptance Criteria

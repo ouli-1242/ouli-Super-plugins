@@ -40,6 +40,7 @@ Produce spreadsheet aggregates and analyses where every figure is traceable to i
   - Check fails → **stop and report the discrepancy**. The disagreement is the finding.
 - **Never work in the user's only copy**: copy to a working file, output to a new file.
 - Route: closed files, plain read/aggregate → Python; formulas must be *computed* (values, not cached) → wps-cli (openpyxl writes formulas but never computes them); file open in WPS or user watching → wps-cli; PDF/scans → file-ops first.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: "大概对得上就行了"; "调数凑平" (adjusting a number to make totals agree); reporting without the 来源清单.
 
 ## Acceptance Criteria
@@ -67,3 +68,7 @@ Produce spreadsheet aggregates and analyses where every figure is traceable to i
 
 - Metrics: cross-check failures caught before delivery (that's the metric working), figures without source mapping (target 0), user-caught number errors (target 0).
 - Log: 口径声明 + 来源清单 in the report; discrepancies reported, never smoothed.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

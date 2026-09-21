@@ -1,6 +1,6 @@
 id: "NB-skills/superwork"
 name: "superwork"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Route a coding task to the right domain skill and bind five unconditional disciplines; carries no operational procedure."
@@ -29,6 +29,7 @@ input_contract:
   required: "current task description"
   optional: "existing artifact state (spec / plan / review / handoff paths)"
   missing_behavior: "ask one clarifying question, then route"
+  exemption_behavior: "pure Q&A, trivial one-line edits, and explicit user opt-out are answered directly without routing (references/exemptions.md); the five disciplines still bind"
 output_contract:
   format: "one routing statement (skill name + reason) followed by invoking the skill"
   quality: "one task stage maps to one skill; overlaps resolved by precedence and stated"
@@ -65,3 +66,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/superwork; process route table reduced to an L0 domain index; composition/conflict precedence added."
+  - "1.0.1 (2026-09-20): direct-answer exemptions surfaced into the description and input contract; 'BEFORE any other action' no longer reads as conflicting with references/exemptions.md."

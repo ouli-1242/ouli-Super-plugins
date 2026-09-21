@@ -36,6 +36,7 @@ Draft any office document through one frame: four questions, a template-derived 
 - **Skeleton priority**: doc-asset profile → a past sample from the user ("有往届的方案发我参考一份" prevents the most expensive failure) → a structure primitive confirmed with the user in one outline message (总分总 / 问题—方案—论证 / 评分响应式 / 时间线—进展 / 对比—选择 / 指令—步骤 / IMRaD — pick by document type).
 - **Draft from material only.** Every number and quotation comes from the gathered material or is marked `[待核实]` — invent nothing, not even plausible figures. Unknown unit conventions (称谓、落款、日期格式) → follow the template, else neutral standard form + flag for confirmation.
 - Write for the reader of question 1: conclusions first for senior readers; the ask stated where it cannot be missed.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: skipping the four questions ("内容简单"); trusting memory of a format ("这种文体我熟" — formats drift); padding a full-looking draft over invented numbers.
 
 ## Acceptance Criteria
@@ -63,3 +64,7 @@ Draft any office document through one frame: four questions, a template-derived 
 
 - Metrics: drafts with unsourced numbers (target 0), wrong-format rewrites (template-first adherence), `[待核实]` resolution rate.
 - Log: recurring drafting conventions worth keeping → doc-asset profile proposal.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

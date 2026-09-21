@@ -1,7 +1,7 @@
 # Multi-harness conformance validator for one skill pack.
 #
 #   pwsh -NoProfile -File scripts/validate-multi.ps1                 # canonical agents-skills/
-#   pwsh -NoProfile -File scripts/validate-multi.ps1 -AllTargets     # + zcode-skills / codex-skills
+#   pwsh -NoProfile -File scripts/validate-multi.ps1 -AllTargets     # + zcode-skills / codex-skills / NB-skills
 #   pwsh -NoProfile -File scripts/validate-multi.ps1 -Target zcode-skills
 #
 # Enforces what every SKILL.md-reading harness needs together:
@@ -71,7 +71,7 @@ function Test-Frontmatter([string]$Raw) {
 
 # ---------- targets ----------
 $folders = if ($AllTargets) {
-    @('agents-skills', 'zcode-skills', 'codex-skills') | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) }
+    @('agents-skills', 'zcode-skills', 'codex-skills', 'NB-skills') | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) }
 }
 else { @($Target) }
 

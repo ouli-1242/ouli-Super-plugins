@@ -1,6 +1,6 @@
 id: "NB-skills/file-ops"
 name: "file-ops"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Convert/merge/split/extract/recover office files with the discipline in fidelity checking, not mere existence."
@@ -65,3 +65,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/file-ops; fidelity contract and single-file proof kept as hard constraints."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

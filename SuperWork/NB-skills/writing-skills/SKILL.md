@@ -23,12 +23,12 @@ Apply test-driven development to process documentation: observe the failure, wri
 
 - Required: the skill idea/defect to fix, or the retro request.
 - Optional: neighboring skills for exclusion wording.
-- Missing behavior: no observed failure to fix → do not write the skill (a no-failure control means there is nothing to teach).
+- Missing behavior: no observed failure to fix → do not write the skill (a no-failure control means there is nothing to teach). "This session had no fitting skill" is not yet a failure — log it in the pack's `docs/skill-gaps.md`; three independent occurrences of the same gap make a legitimate proposal.
 
 ## Output Contract
 
 - A skill (new or edited) that changes the failing behavior, with:
-  - **Description (SDO)**: triggering conditions only — never a workflow summary; opens "Use when/BEFORE..."; concrete triggers with the user's actual speech as exemplars (Chinese primary + code-switched tech terms; 1 exclusive anchor word + 2–3 short phrases); negative exclusions naming the neighboring skill; frontmatter ≤ 1024 chars.
+  - **Description (SDO)**: triggering conditions only — never a workflow summary; opens "Use when/BEFORE..."; concrete triggers with the user's actual speech as exemplars (Chinese primary + code-switched tech terms; 1 exclusive anchor word + 2–3 short phrases); negative exclusions naming the neighboring skill; frontmatter ≤ 1024 chars; zero maintainer-facing content — provenance, single-source pointers, changelog live in contract.yaml.
   - **Body** in the form the failure type demands (see below), ≤ 8 KB, depth pushed into `references/`.
   - Registration: lifecycle-stage skills are added to the `superwork` router's capability index.
 

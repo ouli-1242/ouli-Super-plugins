@@ -1,6 +1,6 @@
 id: "NB-skills/verify-output"
 name: "verify-output"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Gate every office deliverable behind fresh tool-run evidence (read back, rendered, counted) before any handover claim or sending."
@@ -63,3 +63,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/verify-output; evidence table kept verbatim as the acceptance contract."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

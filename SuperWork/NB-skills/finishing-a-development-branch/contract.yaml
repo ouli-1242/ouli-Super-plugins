@@ -1,6 +1,6 @@
 id: "NB-skills/finishing-a-development-branch"
 name: "finishing-a-development-branch"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Convert a finished, verified branch into a user-owned integration decision (merge / PR / keep) without ever losing work."
@@ -65,3 +65,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/finishing-a-development-branch; menu/discard mechanics kept as confirmation constraints."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

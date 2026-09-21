@@ -1,0 +1,37 @@
+# 双变体（agents-skills 与 NB-skills）共享事实的唯一源。skill 正文引用这里的
+# 值而不是各自复述，策略改动只需改一处，而不是十二处。
+#
+# scripts/audit-docs.ps1 消费其中 artifact_types / root_docs / index_facade /
+# index_sections，其余供维护者阅读。引用本文件的正文自行保持数字同步——
+# 这里的值一变，同一次提交里更新引用它的 SKILL.md 正文。
+
+version: 1
+
+unconditional_disciplines:
+  - id: number-and-citation-truth
+    summary: "每个数字都来自用户文件或工具计算——绝不编造、绝不默默估算；每条引用都来自真实检索。缺数据 -> 标 [待核实] 并询问。"
+  - id: template-first
+    summary: "起草前先找单位/个人的模板或往届样例（doc-asset）。没有模板 -> 与用户确认结构。绝不凭空发明机构的格式。"
+  - id: evidence-delivery
+    summary: "没有读回验证不得说「文件做好了」——文件能打开、页数对、关键内容在，版式关键件要有打印预览。"
+  - id: credential-safety
+    summary: "API 密钥与凭证只进配置文件——绝不进对话、文档或日志。说明凭证存放位置。"
+  # SuperOffice：四条纪律均无豁免。琐碎单行编辑只跳过路由。
+
+artifact_types:
+  办公资产: "doc-asset profile（结构 / 格式参数 / 称谓 / 措辞），已登记索引"
+  日志:   "YYYY-MM-DD-<主题>.md（纪律偏差记录，存在项目脊柱时）"
+root_docs: [环境清单.md]
+index_facade: "docs/办公资产/索引.md"
+index_sections: [资产]
+draft_isolation: "不适用——办公交付物是面向用户的文件，不是仓库产物"
+
+router_hard_rules:
+  - "一次一个动词；多动词任务先声明串联。"
+  - "阶段重叠按工作流位置裁决：输入 < 起草 < 修改 < 审阅。"
+  - "绝不凭记忆路由。"
+  - "四条纪律无豁免；用户指令优先，偏离须声明。"
+
+variant_policy:
+  nb: "旗舰档模型的合同变体；安装时替代 agents-skills，绝不两者同装"
+  fallback: "每个 NB skill 的 fallback_variant 指向其 agents-skills 孪生版"

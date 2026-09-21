@@ -43,6 +43,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 - Code written before the failing test existed gets deleted, not kept "as reference".
 - Exceptions (throwaway prototypes, generated code, config files) require asking the user first. "Just this once" is not an exception.
 - Anti-patterns that void the test: **implementation-coupled** (mocks internals; breaks under refactor while behavior is unchanged); **tautological** (expected value recomputed the way the code computes it — expected values must come from an independent source of truth); **horizontal slicing** (all tests first, then all implementation — tests imagined behavior).
+- **Rationalizations kill the loop** — "too simple to test", "I'll test after", "already manually tested" are red flags with known counters: `references/rationalizations.md`.
 - Prohibited: starting implementation on main/master without explicit consent.
 
 ## Acceptance Criteria
@@ -76,3 +77,4 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 - What a good test is, with examples: `tests.md`
 - Mocking guidelines: `mocking.md`
 - Deep module / seam vocabulary: `deep-modules.md`
+- Excuses that defeat the Iron Law, with counters: `references/rationalizations.md`

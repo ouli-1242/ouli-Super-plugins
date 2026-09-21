@@ -47,6 +47,7 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
   - Requirements met → line-by-line checklist against the spec.
 - Red-team self-check before "done", answered out loud: How could this be wrong? What did I NOT verify (→ 诚实边界)? What actually happened vs what was planned (→ 偏离声明)? What would break in production?
 - An honest "I don't know" goes into the log — never buried.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: expressing satisfaction ("Great!", "Done!") before verification; "just this once"; assuming different wording exempts the rule (violating the letter is violating the spirit).
 
 ## Acceptance Criteria
@@ -74,3 +75,7 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 
 - Metrics: unevidenced completion claims (target 0), 诚实边界 presence rate, user-caught false claims.
 - Log: evidence + 诚实边界 + 偏离声明 into `docs/日志/` at milestones.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

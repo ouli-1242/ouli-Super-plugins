@@ -1,6 +1,6 @@
 id: "NB-skills/handoff"
 name: "handoff"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Keep sessions losslessly resumable via a continuously maintained handoff doc with five required slots, on real triggers only."
@@ -26,7 +26,7 @@ risk_level: "L1"
 confirmation_required: []
 input_contract:
   required: "a real trigger (user ask / compaction notice / new session finds doc)"
-  optional: "description of the next session's focus"
+  optional: "description of the next session's focus; arguments passed with the request ARE that description - tailor 剩余任务/suggested skills to them"
   missing_behavior: "ask one question - what will the next session be used for?"
 output_contract:
   format: "docs/交接/YYYY-MM-DD-交接与剩余任务.md with five slots (立即接续命令/今日交付/剩余任务/诚实边界与偏离声明/suggested skills), registered in 文档导航"
@@ -62,3 +62,5 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/handoff; slot 4 merges honest boundary with deviation statement."
+
+  - "1.0.1 (2026-09-20): argument-as-focus-description rule strengthened in the input contract (was easy to miss as a parenthetical)."

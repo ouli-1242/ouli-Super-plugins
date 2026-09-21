@@ -1,6 +1,6 @@
 id: "NB-skills/form-fill"
 name: "form-fill"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Fill fixed forms by mapping material to fields traceably; the mapping table is the real deliverable."
@@ -64,3 +64,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/form-fill; mapping table kept as the core deliverable."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

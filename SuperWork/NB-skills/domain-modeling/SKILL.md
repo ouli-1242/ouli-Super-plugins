@@ -17,7 +17,7 @@ Actively build and sharpen the project's domain model: challenge terms as they d
 
 - CAN: challenge term drift, sharpen fuzzy language, probe boundaries with scenarios, cross-check claims against code, write glossary entries and ADRs.
 - CANNOT: let the glossary become a spec/scratch-pad; record decisions that don't meet the three-condition bar.
-- Depends on: `docs/技术依据.md` (glossary section), `docs/决策记录.md` (D-NNN, six-part); formats in `ADR-FORMAT.md` / `CONTEXT-FORMAT.md`.
+- Depends on: `docs/技术依据.md` (glossary section), `docs/决策记录.md` (D-NNN, six-part); formats in `references/ADR-FORMAT.md` / `references/CONTEXT-FORMAT.md`.
 
 ## Input Contract
 
@@ -62,3 +62,8 @@ Actively build and sharpen the project's domain model: challenge terms as they d
 
 - Metrics: later sessions contradicting the glossary (drift rate), decisions recorded that fail the three-condition bar (target 0), terms captured inline vs batched.
 - Log: glossary/决策记录 are the observability record; 文档导航 registration is the completeness signal.
+
+## References (L2, load on demand)
+
+- Six-part ADR format for `决策记录.md`: `references/ADR-FORMAT.md`
+- Per-context map format for multi-context repos: `references/CONTEXT-FORMAT.md`

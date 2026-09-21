@@ -1,6 +1,6 @@
 id: "NB-skills/tdd"
 name: "tdd"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Drive all production code through the red-green loop with tests worth keeping, written first at pre-agreed seams."
@@ -41,6 +41,7 @@ forbidden:
   - "Testing at unconfirmed seams; testing interfaces still being reshaped"
   - "Implementation-coupled, tautological, or horizontal-sliced tests"
   - "Starting on main/master without explicit consent"
+  - "Iron-Law rationalizations ('too simple to test', 'I'll test after', 'already manually tested' - counters in references/rationalizations.md)"
 acceptance_criteria:
   - "Every production change preceded in history by a failing test for the right reason"
   - "Seams named and user-agreed"
@@ -68,3 +69,5 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/tdd; requirements gate asks the user directly (no sibling router dependency)."
+
+  - "1.0.1 (2026-09-20): rationalization table restored as references/rationalizations.md (L2); pressure-driven rule-skipping needs prohibition + rationalization counters, not prose alone."

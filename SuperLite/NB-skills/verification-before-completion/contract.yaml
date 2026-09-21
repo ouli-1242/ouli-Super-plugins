@@ -1,6 +1,6 @@
 id: "NB-skills/verification-before-completion"
 name: "verification-before-completion"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Guarantee no success claim without fresh verification evidence for any deliverable (code, documents, analyses); carry honest boundaries with every claim."
@@ -60,3 +60,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperLite/verification-before-completion; non-code deliverable clause kept."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

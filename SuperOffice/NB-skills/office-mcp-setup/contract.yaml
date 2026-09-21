@@ -1,6 +1,6 @@
 id: "NB-skills/office-mcp-setup"
 name: "office-mcp-setup"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Diagnose whether office work needs an MCP at all, configure from the vetted catalog, verify connections, register the setup."
@@ -66,3 +66,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/office-mcp-setup; three-case diagnosis kept as the gating constraint."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

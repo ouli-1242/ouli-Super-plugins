@@ -1,6 +1,6 @@
 {
   "name": "SuperLite",
-  "description": "Everyday + simple-project pack: mini router + 9 skills. Do NOT install alongside SuperWork - 8 skill names collide. Generates agents-skills/ (one text for every SKILL.md harness) and codex-skills/ (+ agents/openai.yaml).",
+  "description": "日用 + 简单项目包：mini 路由器 + 9 个 skill。不要与 SuperWork 同装——8 个 skill 名冲突。生成 agents-skills/（所有按 name+description 发现 skill 的 harness 共用一套文本）与 codex-skills/（另加 agents/openai.yaml）。",
   "conflictsWith": [
     "SuperWork"
   ],
@@ -17,6 +17,13 @@
     "doc-index"
   ],
   "optional": [],
+  "variants": {
+    "NB-skills": {
+      "description": "旗舰模型合同变体：同样 10 个 skill，英文合同式正文（结果/边界/安全/验收约束）+ contract.yaml 元数据；安装时替代 agents-skills，绝不两者同装",
+      "skills": "与 skills 相同",
+      "install": "install-skills.ps1 -Variant NB（或手动把 NB-skills/<skill> junction/复制进目标 harness 的 skills 目录）"
+    }
+  },
   "codexExplicitOnly": [
     "handoff",
     "writing"

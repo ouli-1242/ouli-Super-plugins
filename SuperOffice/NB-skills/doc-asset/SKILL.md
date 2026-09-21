@@ -45,6 +45,7 @@ Persist the organization's/personal document conventions as **assets extracted f
 - Every asset lands on disk **and** in `索引.md` — not registered is not saved.
 - **Assets are default, not law**: the user's instruction wins; offer to update the profile when the change looks permanent. **Stale profiles are worse than none** — contradicting feedback updates the asset in the same turn.
 - **Privacy rule**: assets contain internal names, titles, business details — they stay in the workspace, never into reports, examples for others, or cloud services; redact when an excerpt must be shown elsewhere.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: "先记在对话里，回头再存" (conversation is not storage); "这份样例应该有代表性" (that is the user's call — one confirmation question buys months of correct drafts).
 
 ## Acceptance Criteria
@@ -71,3 +72,7 @@ Persist the organization's/personal document conventions as **assets extracted f
 
 - Metrics: drafts deviating from a confirmed profile (target 0), unconfirmed assets on disk (target 0), stale-profile corrections.
 - Log: 索引.md is the registry; updates dated per asset.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`

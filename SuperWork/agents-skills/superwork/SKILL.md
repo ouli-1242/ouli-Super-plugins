@@ -40,11 +40,11 @@ The Skill tool takes one skill per call. A stage needing two skills is two calls
 
 ## Unconditional Disciplines
 
-These bind even when no skill is loaded:
+These bind even when no skill is loaded (canonical values, including the review thresholds in #3, live in `shared/disciplines.yaml`; restated here).
 
 1. **Test-first.** If the project has a test suite, write the failing test before production code; bug fixes ship with a regression test. Exceptions (throwaway prototypes, generated code, pure config) require asking the user first. Full method: `tdd`.
 2. **Evidence before completion.** No claim of "done/passing/fixed" without a fresh verification command run and read in this turn. "Should pass" is not evidence. Full method: `verification-before-completion`.
-3. **Review before merge.** Standards + Spec two-axis review before merging back to mainline when any threshold is met: core module touched / diff ≥ 15 files / new engine, API, or data-model contracts. Full method: `code-review`.
+3. **Review before merge.** Standards + Spec two-axis review before merging back to mainline when any threshold is met. Full method: `code-review`.
 4. **Persist and register.** Every artifact (spec, plan, decision, review, handoff, log) is saved under `docs/` in its type dir AND registered in `docs/文档导航.md` (per `doc-index`). Not done until on disk + in the index; chat-only is not a deliverable.
 5. **Honest boundary + deviation + red-team.** Logs/claims carry 诚实边界 (what was NOT done/verified) and 偏离声明 (reality vs plan); red-team self-check before "done". Methods: `executing-plans` (log slots), `verification-before-completion` (red-team).
 

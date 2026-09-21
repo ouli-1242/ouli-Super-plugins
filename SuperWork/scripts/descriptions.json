@@ -1,5 +1,5 @@
 {
-  "_comment": "Canonical (LONG) descriptions for this pack - the single source of truth. Full trigger text, negative exclusions and cross-skill pointers all live here; there is no compressed canonical variant. ZCode, whose per-turn metadata injects only the first 250 chars, gets a derived short form generated at build time by build-agent-skills.cjs - never hand-maintained.",
+  "_comment": "本包的规范（长）描述——唯一事实源。完整触发文本、负向排除与跨 skill 指针都在这里；没有压缩版的规范变体。ZCode 的每轮元数据只注入描述前 250 字符，其派生短版由 build-agent-folders.cjs 在构建时生成——绝不手工维护。",
   "maxTotal": 1024,
   "descriptions": {
     "SuperWork/brainstorming": "Use when the user's request is underspecified - a vague feature idea, a new project, or a design question where requirements are not yet settled. Asks clarifying questions, presents a design, and gets explicit approval BEFORE any implementation. NOT for bug reports (diagnosing-bugs), NOT when the user already said what to do and how (tdd), NOT for a stress-tested settled plan (grilling). 中文信号：「加个功能」「我想做个…」「帮我设计…」「这个需求怎么做」。",

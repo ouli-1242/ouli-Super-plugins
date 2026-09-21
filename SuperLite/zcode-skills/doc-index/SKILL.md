@@ -13,7 +13,7 @@ description: "Use when a project has no docs/文档导航.md yet (the first arti
 3. **Save the artifact** to the matching type directory.
 4. **Register it** — append one row to the matching type table in 文档导航.md (path + one-line summary).
 
-No artifact is "done" until it is saved under `docs/` **and** registered in 文档导航.md. This is the organizing discipline the whole skill set rides on.
+No artifact is "done" until it is saved under `docs/` **and** registered in 文档导航.md. This is the organizing discipline the whole skill set rides on (canonical type list and naming conventions: `shared/disciplines.yaml`).
 
 ## Default Layout
 

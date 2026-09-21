@@ -22,7 +22,7 @@ Keep a session losslessly resumable: maintain a handoff document that any fresh 
 ## Input Contract
 
 - Required: a trigger signal (above).
-- Optional: user's description of what the next session will focus on (treat arguments as that description).
+- Optional: user's description of what the next session will focus on — **if the user passed arguments with the request, treat those arguments AS that description** and tailor the doc's 剩余任务 / suggested skills to it.
 - Missing behavior: before writing, ask ONE question — what will the next session be used for? The answer decides which state is worth carrying.
 
 ## Output Contract

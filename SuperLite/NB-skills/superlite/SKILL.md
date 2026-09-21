@@ -1,6 +1,6 @@
 ---
 name: superlite
-description: "Use when starting any conversation or task - the entry-point router for NB-skills (SuperLite variant), built for daily use and simple projects - writing and summarizing, research, decisions, plans, light coding. 中文同样适用（写东西、总结材料、查资料、做决定、做计划、修 bug、评审）。Only routes and arbitrates; the method lives in each domain skill. NOT a process manual."
+description: "Use when starting any conversation or task - the entry-point router for NB-skills (SuperLite variant), built for daily use and simple projects - writing and summarizing, research, decisions, plans, light coding. 中文同样适用（写东西、总结材料、查资料、做决定、做计划、修 bug、评审）。Only routes and arbitrates; the method lives in each domain skill. NOT a process manual. Exempt: pure Q&A, trivial edits, explicit user opt-out - answer directly (disciplines still bind)."
 ---
 # SuperLite — Daily Router and Discipline Binding
 
@@ -47,6 +47,8 @@ Route the task to the right domain skill, keep the daily one-off lane ceremony-f
 - Quality bar: one task → one skill; daily one-offs stay ceremony-free.
 
 ## Constraints and Prohibitions (unconditional disciplines — bind even with no skill loaded)
+
+Canonical values: `shared/disciplines.yaml`; the five below restate them.
 
 1. **Test-first.** Project has a test suite → failing test before production code; bug fixes ship with a regression test; exceptions (throwaway prototypes, generated code, pure config) ask the user first.
 2. **Evidence before completion.** No "done/passing/fixed" without a fresh verification run this turn — tests for code, re-reading for documents, re-checking for numbers.

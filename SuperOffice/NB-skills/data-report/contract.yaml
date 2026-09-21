@@ -1,6 +1,6 @@
 id: "NB-skills/data-report"
 name: "data-report"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Produce spreadsheet aggregates/analyses where every figure is traceable and every total is cross-checked before reporting."
@@ -64,3 +64,4 @@ observability:
 review_cycle: "60 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperOffice/data-report; cross-check kept mandatory; anti-rationalization table folded into prohibitions."
+  - "1.0.1 (2026-09-21): rationalization/red-flag material restored as references/rationalizations.md (L2); the contract rewrite had dropped it."

@@ -27,7 +27,7 @@ Daily one-offs — a quick summary, a one-paragraph answer, a small comparison �
 
 ## Unconditional Disciplines
 
-These bind even when no skill is loaded — trivial shortcuts do not waive them:
+These bind even when no skill is loaded — trivial shortcuts do not waive them (canonical values: `shared/disciplines.yaml`; restated here).
 
 1. **Test-first.** If the project has a test suite, write the failing test before production code; bug fixes ship with a regression test. Exceptions (throwaway prototypes, generated code, pure config) require asking the user first.
 2. **Evidence before completion.** No claim of "done/passing/fixed" without a fresh verification run in this turn - tests for code, re-reading for documents, re-checking for numbers. "Should pass" is not evidence.

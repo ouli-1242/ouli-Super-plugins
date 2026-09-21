@@ -1,6 +1,6 @@
 id: "NB-skills/domain-modeling"
 name: "domain-modeling"
-version: "1.0.0"
+version: "1.0.1"
 owner: "ouli"
 status: "active"
 purpose: "Actively build the project's domain model - challenge term drift, sharpen language, capture qualifying decisions in glossary and ADR formats inline."
@@ -18,7 +18,7 @@ dependencies:
   apis: []
   data:
     - "docs/技术依据.md (glossary), docs/决策记录.md (D-NNN)"
-    - "ADR-FORMAT.md / CONTEXT-FORMAT.md in this skill"
+    - "references/ADR-FORMAT.md / references/CONTEXT-FORMAT.md in this skill"
   skills: [doc-index, grilling]
 permissions:
   - "Write docs/技术依据.md and docs/决策记录.md only"
@@ -65,3 +65,4 @@ observability:
 review_cycle: "90 days"
 changelog:
   - "1.0.0 (2026-09-19): contract-style rewrite of SuperWork/domain-modeling; session techniques collapsed into constraints; three-condition decision bar kept verbatim."
+  - "1.0.1 (2026-09-20): ADR-FORMAT.md / CONTEXT-FORMAT.md moved into references/ to match the pack-wide L2 layering convention; references section added to SKILL.md."

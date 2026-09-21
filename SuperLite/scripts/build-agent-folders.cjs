@@ -1,25 +1,23 @@
 #!/usr/bin/env node
-// One canonical source, two derived folders.
+// 一个规范源，两个派生目录。
 //
-//   node scripts/build-agent-folders.cjs            # rebuild derived folders
-//   node scripts/build-agent-folders.cjs --check    # verify, write nothing
+//   node scripts/build-agent-folders.cjs            # 重建派生目录
+//   node scripts/build-agent-folders.cjs --check    # 只校验，不写盘
 //
-//   agents-skills/   THE SOURCE. Long descriptions, name + description only.
-//                    Feed it to every harness that reads SKILL.md: DSH, Claude
-//                    Code, Codex, Cursor, Qoder, Gemini CLI, opencode, CodeBuddy,
-//                    Kimi, Grok. Several of them scan the shared ~/.agents/skills
-//                    root, so this one folder covers the whole non-ZCode surface.
-//                    Edit skills here (or in scripts/descriptions.json, then run
-//                    apply-descriptions.cjs), never in the derived folders.
-//   zcode-skills/    derived: the same skills with a short description, because
-//                    ZCode documents that per-turn metadata injects only the first
-//                    250 chars of each description. Generated, never hand-edited.
-//   codex-skills/    derived: the same skills plus the Codex-only
-//                    agents/openai.yaml (UI metadata + invocation policy). Codex
-//                    has no SKILL.md key that other harnesses lack.
+//   agents-skills/   规范源。长描述，frontmatter 只有 name + description。
+//                    提供给所有读 SKILL.md 的 harness：DSH、Claude Code、
+//                    Codex、Cursor、Qoder、Gemini CLI、opencode、CodeBuddy、
+//                    Kimi、Grok。其中多个还会扫描共享根 ~/.agents/skills，
+//                    所以这一个目录覆盖 ZCode 之外的全部端面。
+//                    改 skill 在这里改（或改 scripts/descriptions.json 后跑
+//                    apply-descriptions.cjs），绝不改派生目录。
+//   zcode-skills/    派生：同样 skill 配短描述——ZCode 文档说明每轮元数据只
+//                    注入每条描述的前 250 字符。生成物，绝不手改。
+//   codex-skills/    派生：同样 skill 另加 Codex 专属的 agents/openai.yaml
+//                    （UI 元数据 + 调用策略）。Codex 没有 别的 harness 缺少的
+//                    SKILL.md 键。
 //
-// Safety: derived folders are rebuilt in place; entries not listed in
-// bundle.json are reported and left untouched.
+// 安全性：派生目录原地重建；不在 bundle.json 名单内的条目只报告、不触碰。
 
 const fs = require('fs');
 const path = require('path');
@@ -38,7 +36,7 @@ const DISPLAY = { tdd: 'TDD', 'wps-cli': 'WPS CLI', 'doc-index': 'Doc Index', ap
 const problems = [];
 const report = [];
 
-// ---------- description helpers ----------
+// ---------- 描述辅助函数 ----------
 function readDescription(skill) {
     const raw = fs.readFileSync(path.join(SRC_DIR, skill, 'SKILL.md'), 'utf8');
     const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -73,7 +71,7 @@ function anchors(full) {
     return out;
 }
 
-// Keep the opening trigger sentence + the Chinese anchors, then degrade.
+// 保留开头触发句 + 中文锚点，然后逐级降级。
 function zcodeDescription(full, limit = ZCODE_LIMIT) {
     const first = full.match(/^[^。]*?\.\s/);
     const head = (first ? first[0] : full).trim();
@@ -112,7 +110,7 @@ function copySkill(skill, dst, transform) {
         const from = path.join(src, entry.name);
         const to = path.join(dst, entry.name);
         if (entry.isDirectory()) {
-            if (entry.name === 'agents') continue;   // codex-skills owns agents/openai.yaml
+            if (entry.name === 'agents') continue;   // agents/openai.yaml 由 codex-skills 负责
             fs.cpSync(from, to, { recursive: true, force: true });
         }
         else if (entry.name === 'SKILL.md' && transform) fs.writeFileSync(to, transform(fs.readFileSync(from, 'utf8')), 'utf8');
@@ -120,7 +118,7 @@ function copySkill(skill, dst, transform) {
     }
 }
 
-// ---------- validate the source first ----------
+// ---------- 先校验源 ----------
 const sources = {};
 for (const skill of skillNames) {
     const file = path.join(SRC_DIR, skill, 'SKILL.md');
@@ -139,14 +137,62 @@ if (problems.length) {
     process.exit(1);
 }
 
-// ---------- build the derived folders ----------
+// ---------- 构建派生目录 ----------
+// --check 同时校验内容是否过期：在内存中模拟构建，把每个应生成的文件与磁盘
+// 逐一比对。"CHECKED" 表示"是最新的"。
+function listFiles(dir) {
+    const out = [];
+    if (!fs.existsSync(dir)) return out;
+    const walk = (d, rel) => {
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+            const r = rel ? rel + '/' + entry.name : entry.name;
+            if (entry.isDirectory()) walk(path.join(d, entry.name), r);
+            else out.push(r);
+        }
+    };
+    walk(dir, '');
+    return out;
+}
+
+function expectedFiles(skill, target) {
+    const out = new Map();
+    const src = path.join(SRC_DIR, skill);
+    const walk = (dir, rel) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === 'agents') continue; // agents/openai.yaml 由 codex-skills 负责
+            const from = path.join(dir, entry.name);
+            const r = rel ? rel + '/' + entry.name : entry.name;
+            if (entry.isDirectory()) walk(from, r);
+            else out.set(r, fs.readFileSync(from, 'utf8'));
+        }
+    };
+    walk(src, '');
+    if (target === 'zcode-skills') {
+        out.set('SKILL.md', setDescription(out.get('SKILL.md'), zcodeDescription(sources[skill])));
+    } else {
+        out.set('agents/openai.yaml', codexYaml(skill));
+    }
+    return out;
+}
+
 for (const target of ['zcode-skills', 'codex-skills']) {
     const dir = path.join(PACK_DIR, target);
     if (!CHECK) fs.mkdirSync(dir, { recursive: true });
     let n = 0;
     for (const skill of skillNames) {
         const dst = path.join(dir, skill);
-        if (CHECK) { n++; continue; }
+                if (CHECK) {
+            const want = expectedFiles(skill, target);
+            for (const [rel, content] of want) {
+                const onDisk = path.join(dst, rel.replace(/\//g, path.sep));
+                if (!fs.existsSync(onDisk)) { report.push(`STALE   ${target}/${skill}/${rel} (missing)`); continue; }
+                if (fs.readFileSync(onDisk, 'utf8') !== content) report.push(`STALE   ${target}/${skill}/${rel} (source changed - rerun without --check)`);
+            }
+            for (const rel of listFiles(dst)) {
+                if (!want.has(rel)) report.push(`EXTRA   ${target}/${skill}/${rel} (not produced by the build)`);
+            }
+            n++; continue;
+        }
         if (target === 'zcode-skills') {
             copySkill(skill, dst, raw => setDescription(raw, zcodeDescription(sources[skill])));
         }
@@ -166,7 +212,7 @@ for (const target of ['zcode-skills', 'codex-skills']) {
     report.push(`${CHECK ? 'CHECKED' : 'BUILT  '} ${target}/  ${n} skill(s)`);
 }
 
-// ---------- staleness of the source itself ----------
+// ---------- 源本身的过期检查 ----------
 for (const entry of fs.readdirSync(SRC_DIR)) {
     if (!skillNames.includes(entry)) report.push(`EXTRA   agents-skills/${entry} (not in bundle.json - left untouched)`);
 }

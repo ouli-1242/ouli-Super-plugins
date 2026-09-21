@@ -37,6 +37,7 @@ Turn a finished, verified branch into an integration decision owned by the user 
 - **Discard path exists only on an explicit user request to throw the work away**, and requires the exact typed word `discard` after showing what will be permanently deleted (branch + commit list). "Yeah, get rid of it" is not the confirmation. Discard executes `git branch -D`.
 - Merged result fails tests → stop everything, branch stays in place, investigate; nothing has been pushed, the merge is local and recoverable.
 - Merge hits conflicts → resolving-merge-conflicts owns them (both intents, never invent behavior, never `--abort`); resume this skill's remaining steps after.
+- **Rationalizations kill the rule** — the observed excuses, failure patterns and their counters: `references/rationalizations.md`.
 - Prohibited: force-push without the user's explicit request (a rejected push means the remote moved — investigate first); worktree cleanup beyond the branch (belongs to whatever created the worktree).
 
 ## Acceptance Criteria
@@ -64,3 +65,7 @@ Turn a finished, verified branch into an integration decision owned by the user 
 
 - Metrics: integrations without a fresh green suite (target 0), unintended discards (target 0), wrong-base merges (target 0).
 - Log: the integration choice and resulting SHAs/URL into `docs/日志/`.
+
+## References (L2, load on demand)
+
+- Observed excuses and red flags with counters: `references/rationalizations.md`
