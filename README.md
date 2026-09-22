@@ -17,7 +17,7 @@
 | 目录 | 包名 | 版本 | 说明 |
 |---|---|---|---|
 | [`FastGraph-MCP/`](FastGraph-MCP/) | [`fastgraph-mcp`](https://github.com/ouli-1242/FastGraph-mcp) | 0.2.2 | 轻量代码智能 MCP：AST + 增量索引 + 调用图 |
-| [`Dhole-MCP/`](Dhole-MCP/) | [`dhole-mcp`](https://github.com/ouli-1242/dhole-mcp) | 14.6 | 网页抓取/爬取/反爬/PDF/搜索 |
+| [`Dhole-MCP/`](Dhole-MCP/) | [`dhole-mcp`](https://github.com/ouli-1242/dhole-mcp) | 14.7 | 网页抓取/爬取/反爬/PDF/搜索 |
 | [`OpenEye-MCP/`](OpenEye-MCP/) | [`openeye-mcp`](https://github.com/ouli-1242/openeye-mcp) | 0.3.1 | 为文本模型提供视觉能力：描述/OCR/问答/布局/表格/多图 |
 
 安装：`pip install fastgraph-mcp` / `pip install "dhole-mcp[all]"` / `pip install openeye-mcp`
