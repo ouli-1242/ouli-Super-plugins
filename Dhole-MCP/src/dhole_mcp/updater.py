@@ -45,6 +45,7 @@ from dhole_mcp import paths
 __all__ = [
     "check_version", "pad_version",
     "do_update", "print_version", "print_capabilities", "capabilities",
+    "doctor",
 ]
 
 
@@ -192,6 +193,12 @@ def _other_dhole_pids() -> list[int]:
             out = subprocess.check_output(
                 ["tasklist", "/FI", "IMAGENAME eq dhole.exe", "/FO", "CSV", "/NH"],
                 text=True, timeout=10, creationflags=0x08000000,  # CREATE_NO_WINDOW
+                # Windows 控制台程序按 OEM 代码页输出，中文系统上是 GBK，而
+                # Python 的 UTF-8 模式会把 text=True 的解码器设成 utf-8 —— 于是
+                # 「没有匹配进程」时 tasklist 的中文提示会解码失败。失败点在读
+                # 取线程里，check_output 只会抛出无关的 TypeError。我们要的
+                # dhole.exe 和 PID 全是 ASCII，所以替换掉坏字节即可。
+                errors="replace",
             )
             for line in out.splitlines():
                 parts = [p.strip().strip('"') for p in line.split('","')]
@@ -203,7 +210,8 @@ def _other_dhole_pids() -> list[int]:
                     if pid != my_pid:
                         pids.append(pid)
         else:
-            out = subprocess.check_output(["ps", "-eo", "pid=,comm="], text=True, timeout=10)
+            out = subprocess.check_output(["ps", "-eo", "pid=,comm="], text=True,
+                                          timeout=10, errors="replace")
             for line in out.splitlines():
                 line = line.strip()
                 if not line:
@@ -245,6 +253,7 @@ def _stop_all_dhole() -> None:
 def _dhole_home() -> str:
     p = str(paths.home())
     os.makedirs(p, exist_ok=True)
+    paths.harden_dir(p)
     return p
 
 
@@ -331,8 +340,10 @@ def _write_last_version(v: str) -> None:
     if not v or v == "unknown":
         return
     try:
-        with open(_state_path("last_version"), "w", encoding="utf-8") as f:
+        path = _state_path("last_version")
+        with open(path, "w", encoding="utf-8") as f:
             f.write(v.strip())
+        paths.harden_file(path)
     except OSError:
         pass
 
@@ -720,24 +731,6 @@ def _has_module(name: str) -> bool:
         return False
 
 
-def _reranker_model_present() -> bool:
-    """True if the ACTIVE reranker model is already cached locally.
-
-    Never imports the reranker (which pulls onnxruntime/torch-adjacent deps);
-    the check is pure filesystem on the registry entry. Diagnose via
-    ``dhole -v``.
-    """
-    try:
-        from dhole_mcp.reranker import active_model, active_model_dir
-        model = active_model()
-        d = active_model_dir()
-        return ((d / "model.onnx").exists()
-                and (d / "model.onnx").stat().st_size >= model.min_bytes
-                and (d / "tokenizer.json").exists())
-    except Exception:
-        return False
-
-
 def _engine_yield_row() -> tuple[str, str, bool] | None:
     """每个引擎最近一轮的产出 —— 静默降级唯一能被看见的地方。
 
@@ -807,11 +800,43 @@ def _engine_yield_row() -> tuple[str, str, bool] | None:
         return None
 
 
+def _engine_cooldowns() -> dict[str, float]:
+    """{engine: seconds left} from circuit_breaker.json, expired entries dropped.
+
+    Stdlib-only on purpose (like _engine_yield_row): the doctor has to run on a
+    half-broken install, and importing the search layer pulls primp/lxml/httpx.
+    """
+    try:
+        import json
+        import time
+
+        from dhole_mcp import paths
+        path = paths.file("circuit_breaker.json")
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        now_ts = time.time()
+        return {k: round(v - now_ts, 1) for k, v in data.items()
+                if isinstance(v, (int, float)) and v > now_ts}
+    except Exception:
+        return {}
+
+
 def _append_engine_yield(caps: list[tuple[str, str, bool]]) -> None:
     """capabilities() 有三条提前返回的分支，产出行每条都得看到。"""
     row = _engine_yield_row()
     if row:
         caps.append(row)
+    cooldowns = _engine_cooldowns()
+    if cooldowns:
+        caps.append((
+            "engine cooldowns",
+            " | ".join(f"{n}: {int(s)}s left" for n, s in sorted(cooldowns.items()))
+            + " - they expire on their own; `dhole reset-engines` (or cache_clear "
+              "engine_state=true) clears them now",
+            True,
+        ))
 
 
 def capabilities() -> list[tuple[str, str, bool]]:
@@ -885,5 +910,160 @@ def print_capabilities() -> None:
             print("    " + label.ljust(15) + " " + mark)
     except Exception:
         pass
+
+
+def doctor() -> int:
+    """Proactive health check: diagnose a half-broken install and name the fix.
+
+    ``-v`` says what this install *can* do. ``doctor`` additionally checks
+    install integrity - launcher on PATH, which module file actually loads,
+    metadata drift, stale launcher/processes, writable state dir - and prints a
+    copy-pasteable repair command for every failure. Returns a shell exit code
+    (0 = healthy, 1 = something needs attention) so it can gate a script.
+
+    The "module loaded from" line exists because this project's tests are the
+    thing most easily fooled: with a built wheel installed instead of an
+    editable install, pytest silently exercises site-packages while the editor
+    shows src/. Naming the resolved file makes that visible in one line.
+    """
+    from dhole_mcp import cli_ui as ui
+    from importlib.metadata import version as _meta_version
+
+    def _short(p: str, w: int = 44) -> str:
+        if not p:
+            return ""
+        home = os.path.expanduser("~")
+        if p.startswith(home):
+            p = "~" + p[len(home):]
+        return p if len(p) <= w else "..." + p[-(w - 3):]
+
+    # (label, state, detail, fix) - state is "ok" | "fail" | "info"
+    checks: list[tuple[str, str, str, str]] = []
+
+    # ── install integrity ────────────────────────────────────────────────
+    exe = _dhole_launcher_path()
+    checks.append((
+        "launcher resolves", "ok" if exe else "fail",
+        _short(exe) if exe else "dhole is not on PATH",
+        "" if exe else "python -m pip install -e .",
+    ))
+
+    mod_ver: str | None = None
+    try:
+        import dhole_mcp as _dm
+        mod_ver = getattr(_dm, "__version__", "?")
+        checks.append(("package imports", "ok", mod_ver, ""))
+        checks.append(("module loaded from", "info", _short(_dm.__file__ or ""), ""))
+    except Exception as exc:  # noqa: BLE001
+        checks.append((
+            "package imports", "fail",
+            f"{type(exc).__name__}: {exc}"[:60],
+            "python -m pip install -e .",
+        ))
+
+    try:
+        meta_ver = _meta_version(_DIST_NAME)
+        same = mod_ver is not None and meta_ver == mod_ver
+        checks.append((
+            "metadata consistent", "ok" if same else "fail",
+            meta_ver if same else f"installed {meta_ver} vs module {mod_ver}",
+            "" if same else "python -m pip install -e .",
+        ))
+    except Exception:  # noqa: BLE001
+        checks.append((
+            "metadata consistent", "fail", "package metadata missing",
+            f'python "{repair_script_path()}"',
+        ))
+
+    stale_exe = ""
+    if exe and sys.platform == "win32" and os.path.exists(exe + ".old"):
+        try:
+            os.remove(exe + ".old")
+        except OSError:
+            stale_exe = "dhole.exe.old locked by a running server"
+    checks.append(("launcher clean", "ok" if not stale_exe else "info",
+                   stale_exe or "no stale .old", ""))
+
+    try:
+        _write_repair_script()
+        rp = repair_script_path()
+    except Exception:  # noqa: BLE001
+        # A broken state dir must not take doctor down with it - this is the
+        # command a user runs precisely when things are already broken.
+        rp = ""
+    rp_ok = bool(rp) and os.path.exists(rp)
+    checks.append(("repair script ready", "ok" if rp_ok else "fail",
+                   _short(rp) if rp else "could not resolve the state dir",
+                   "" if rp_ok else "check DHOLE_HOME / permissions, then re-run"))
+
+    try:
+        stale_pids = _other_dhole_pids()
+    except Exception:  # noqa: BLE001
+        stale_pids = []
+    checks.append((
+        "no stale servers", "ok" if not stale_pids else "info",
+        "none running" if not stale_pids
+        else f"{len(stale_pids)} running: PID " + ", ".join(str(p) for p in stale_pids[:4]),
+        "",
+    ))
+
+    missing_core = [m for m in ("httpx", "aiosqlite", "mcp", "pydantic")
+                    if not _has_module(m)]
+    checks.append((
+        "core dependencies", "ok" if not missing_core else "fail",
+        "ok" if not missing_core else "missing: " + ", ".join(missing_core),
+        "" if not missing_core else "python -m pip install -e .",
+    ))
+
+    # ── writable state ───────────────────────────────────────────────────
+    try:
+        home = paths.home()
+        home.mkdir(parents=True, exist_ok=True)
+        probe = home / ".doctor-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        checks.append(("state dir writable", "ok", _short(str(home)), ""))
+    except Exception as exc:  # noqa: BLE001
+        checks.append((
+            "state dir writable", "fail", f"{type(exc).__name__}: {exc}"[:60],
+            "set DHOLE_HOME to a writable path",
+        ))
+
+    try:
+        from dhole_mcp import search_proxy
+        proxies = search_proxy.load_proxies()
+        src = search_proxy._env_proxy_source()
+        if proxies:
+            detail = f"{len(proxies)} configured" + (f" (env: {src})" if src else "")
+        else:
+            detail = "none (direct connection)"
+        checks.append(("proxy pool", "info", detail, ""))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(("proxy pool", "info", f"check failed: {exc}"[:60], ""))
+
+    # ── render ───────────────────────────────────────────────────────────
+    failures = [c for c in checks if c[1] == "fail"]
+    head = (ui.err(f"{len(failures)} issue(s) found") if failures
+            else ui.ok("all healthy"))
+    print(ui.branded(head))
+    for label, state, detail, fix in checks:
+        if state == "ok":
+            mark = ui._sty(ui._glyph("\u2713", "+"), ui._GREEN)
+        elif state == "fail":
+            mark = ui._sty(ui._glyph("\u2717", "x"), ui._RED)
+        else:
+            mark = ui._sty(ui._glyph("!", "!"), ui._MAGENTA)
+        print(f"  {mark} {label:<21} {ui.dim(_short(detail))}")
+        if fix:
+            print(f"      {ui.dim('fix:')} {ui.cmd(fix)}")
+
+    print()
+    print_capabilities()
+
+    if failures:
+        print()
+        print("  " + ui.warn("run the fix above, then") + "  "
+              + ui.cmd("dhole --doctor"))
+    return 1 if failures else 0
 
 

@@ -76,7 +76,13 @@ def _read_config_file() -> list[str]:
 def _read_env_var() -> list[str]:
     """Read proxies from DHOLE_SEARCH_PROXY (comma-separated), with the
     standard HTTPS_PROXY / HTTP_PROXY / ALL_PROXY vars as single-proxy
-    fallbacks when DHOLE_SEARCH_PROXY is unset."""
+    fallbacks when DHOLE_SEARCH_PROXY is unset.
+
+    On Windows ``os.environ`` is case-insensitive, so a lowercase
+    ``https_proxy`` (set by many sandboxes/CI runners) is picked up here too -
+    that is intentional, but it is why a stray sandbox proxy can end up in the
+    pool. ``_env_proxy_source`` names the variable that actually won.
+    """
     raw = (
         os.environ.get("DHOLE_SEARCH_PROXY", "")
         or os.environ.get("HTTPS_PROXY", "")
@@ -86,6 +92,14 @@ def _read_env_var() -> list[str]:
     if not raw:
         return []
     return [p for p in (_validate_proxy(x) for x in raw.split(",")) if p]
+
+
+def _env_proxy_source() -> str:
+    """Name of the env var the pool is actually reading, or '' when none is set."""
+    for name in ("DHOLE_SEARCH_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+        if (os.environ.get(name) or "").strip():
+            return name
+    return ""
 
 
 def load_proxies() -> list[str]:
@@ -104,6 +118,76 @@ def load_proxies() -> list[str]:
             merged.append(p)
     return merged[:MAX_PROXIES]
 
+
+def save_proxies(proxies: list[str]) -> None:
+    """Write proxies to the config file, creating the dhole home dir if needed.
+
+    Invalid entries are dropped silently (``_validate_proxy`` logs a warning) -
+    the file is the source of truth, so it must never hold something the loader
+    would then refuse to use.
+
+    The file holds proxy credentials in plaintext, so both it and its directory
+    are tightened to 0600/0700 after writing (same helpers the other state files
+    use). POSIX only in effect; see ``paths.harden_file``.
+    """
+    path = _config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    validated = [p for p in (_validate_proxy(x) for x in proxies) if p]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"proxies": validated}, f, indent=2)
+    paths.harden_dir(path.parent)
+    paths.harden_file(path)
+
+
+def add_proxy(proxy: str) -> int:
+    """Add a proxy to the config file. Returns total count after adding.
+
+    Raises ValueError if the proxy is invalid, already present, or the pool is
+    full. Writes only to the config file - a proxy set via DHOLE_SEARCH_PROXY
+    stays env-owned and is not copied here.
+    """
+    p = _validate_proxy(proxy)
+    if not p:
+        raise ValueError(
+            f"Invalid proxy '{proxy}'. Expected format: http://ip:port, "
+            f"https://ip:port, socks5://ip:port (or with user:pass@)."
+        )
+    existing = _read_config_file()
+    if p in existing:
+        raise ValueError(f"Proxy already configured: {p}")
+    if len(existing) >= MAX_PROXIES:
+        raise ValueError(f"Proxy pool is full ({MAX_PROXIES} max). Remove one first.")
+    existing.append(p)
+    save_proxies(existing)
+    return len(existing)
+
+
+def remove_proxy(index: int) -> str:
+    """Remove a proxy by index from the config file. Returns the removed proxy.
+
+    Raises IndexError if the index is out of range.
+    """
+    existing = _read_config_file()
+    if not existing:
+        raise IndexError("No proxies configured.")
+    if index < 0 or index >= len(existing):
+        raise IndexError(f"Index {index} out of range (0-{len(existing) - 1}).")
+    removed = existing.pop(index)
+    save_proxies(existing)
+    return removed
+
+
+def clear_proxies() -> int:
+    """Remove all proxies from the config file. Returns the count removed."""
+    existing = _read_config_file()
+    if existing:
+        save_proxies([])
+    return len(existing)
+
+
+def list_proxies() -> list[str]:
+    """List proxies from the config file (not the env var)."""
+    return _read_config_file()
 
 
 def _redact(proxy: str) -> str:
@@ -128,7 +212,8 @@ class ProxyPool:
     its consecutive-failure counter increments. Proxies with >= 3 consecutive
     failures are treated as dead and skipped until a probe (``health_check``)
     or a successful call revives them. ``health_check`` actively probes every
-    proxy once so a pool with stale dead entries heals by itself.
+    proxy once so a pool with stale dead entries heals by itself; it is only
+    kicked when such an entry exists (``needs_probe``).
 
     State is in-memory only (not persisted). Resets on restart.
     """
@@ -152,6 +237,22 @@ class ProxyPool:
 
     def _is_dead(self, proxy: str) -> bool:
         return self._stats.get(proxy, {}).get("consecutive_fails", 0) >= self.MAX_CONSECUTIVE_FAILS
+
+    def needs_probe(self) -> bool:
+        """True when at least one proxy is cooled or counted dead.
+
+        The probe sends a real request through every proxy, and its only effect
+        is reviving proxies that failed — so a fully healthy pool has nothing to
+        gain from it (KB-3: it used to fire on every first search regardless).
+        """
+        now = time.time()
+        for p in self._proxies:
+            until = self._state.get(p, {}).get("cooled_until", 0)
+            if isinstance(until, (int, float)) and until > now:
+                return True
+            if self._is_dead(p):
+                return True
+        return False
 
     def get_proxy(self) -> str | None:
         """Return the next available (non-cooled, not-dead) proxy.
@@ -267,13 +368,29 @@ def get_next_proxy() -> str | None:
     return pool.get_proxy()
 
 
+def reset_pool() -> None:
+    """Drop the cached pool so the next access re-reads config + env.
+
+    Needed after a CLI edit: the singleton is keyed on the loaded proxy list, so
+    without this a running process would keep serving the pre-edit pool.
+    """
+    global _pool
+    _pool = None
+
+
 # Fire-and-forget probe: after the first pool creation, kick off a background
 # health check so dead proxies are detected without blocking the first search.
+# Only when there is something to revive — see ProxyPool.needs_probe().
 _health_task: "asyncio.Task | None" = None
 
 
 def _kick_health_check() -> None:
-    """Start the background proxy health probe once per process (no-op after)."""
+    """Start the background proxy health probe once per process (no-op after).
+
+    Returns without doing anything when the pool has nothing cooled or dead:
+    the probe goes out through every configured proxy, and a pool that is fully
+    healthy has nothing to gain from it.
+    """
     global _health_task
     if _health_task is not None:
         return
@@ -289,6 +406,8 @@ def _kick_health_check() -> None:
         return
     pool = get_proxy_pool()
     if pool is None:
+        return
+    if not pool.needs_probe():
         return
 
     _health_task = loop.create_task(pool.health_check())

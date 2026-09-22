@@ -6,8 +6,9 @@ async-native parallel aggregation with early-return-on-quorum, no CLI / API
 server / MCP / images / videos / news / books / extract / cache / network bloat.
 See the ddgs LICENSE notice in NOTICE.ddgs.txt for full attribution.
 
-Backends (all keyless, no API key, no account): duckduckgo, brave,
-grokipedia, wikipedia, yahoo, yandex. They run in PARALLEL; a backend that
+Backends (all keyless, no API key, no account): the default pool is bing,
+duckduckgo, brave, yahoo, yandex, sogou_weixin, with wikipedia and grokipedia
+opt-in; see search_engines.py. They run in PARALLEL; a backend that
 CAPTCHAs / rate-limits / has no topic-match simply yields
 nothing and the others carry - so search is robust without any single point of
 failure. This is the robustness dhole's hand-rolled 3-engine scraper never had.
@@ -1030,6 +1031,11 @@ def _load_circuit_state() -> None:
             now_ts = time()
             # Only restore entries that haven't expired yet
             _BACKEND_HEALTH = {k: v for k, v in data.items() if v > now_ts}
+            if len(_BACKEND_HEALTH) != len(data):
+                # 磁盘上留着已经过期的熔断记录，内存里却已经不认它：用户（和任何
+                # 拿着这两个文件做诊断的人）读到的是"brave 在冷却"，而实际早就放行
+                # 了。读到过期项就顺手回写，让文件与内存说的同一件事。
+                _save_circuit_state()
     except Exception:
         pass
 
@@ -1056,6 +1062,7 @@ def _save_circuit_state() -> None:
             os.replace(tmp_path, path)
             # 收紧放在 replace 之后：mkstemp 的 0600 会被 rename 带过来，但目录
             # 可能新建、且以后再写时目标已存在——在这里补一次才覆盖两条路径。
+            paths.harden_dir(os.path.dirname(path))
             paths.harden_file(path)
         except Exception:
             # Clean up temp file on failure
@@ -1100,6 +1107,64 @@ def _record_success(name: str) -> None:
     if name in _BACKEND_HEALTH:
         _BACKEND_HEALTH.pop(name, None)
         _save_circuit_state()
+
+
+def sweep_expired_cooldowns() -> int:
+    """Drop cooldowns whose time is up; returns how many were released.
+
+    A cooldown is already inert the moment it expires (`_is_circuit_open` compares
+    against the clock), but the record stays in memory — and, until the next
+    unrelated write, on disk — so the state file reads as "brave is blocked" long
+    after it stopped being true. Sweeping once per search round keeps the file a
+    faithful picture of pool health, which is the only place a user can look.
+    """
+    now_ts = time()
+    expired = [k for k, v in _BACKEND_HEALTH.items() if v <= now_ts]
+    if expired:
+        for k in expired:
+            _BACKEND_HEALTH.pop(k, None)
+        _save_circuit_state()
+    return len(expired)
+
+
+def cooldowns() -> dict[str, float]:
+    """Active cooldowns as {engine: seconds remaining}."""
+    now_ts = time()
+    return {k: round(v - now_ts, 1) for k, v in _BACKEND_HEALTH.items() if v > now_ts}
+
+
+def engine_state_reset() -> dict:
+    """Forget everything the pool remembers: cooldowns, failure counts, yield.
+
+    The two state files decide which engines get asked. When an engine was
+    cooled down on a network that has since changed (VPN switched on, host
+    unblocked), the records still shape the next several searches, and the only
+    lever a user had was finding and deleting these files by hand — which is also
+    how the "dhole ignores my VPN" misdiagnosis started. This is that lever, made
+    a call. Nothing else is touched: the content cache is `cache_clear`.
+    """
+    released = {k: round(v - time(), 1) for k, v in _BACKEND_HEALTH.items()}
+    forgotten = len(_ENGINE_YIELD)
+    _BACKEND_HEALTH.clear()
+    _CONN_FAIL_COUNTS.clear()
+    _ENGINE_YIELD.clear()
+    global _engine_stats_last_save
+    _engine_stats_last_save = 0.0
+    _save_circuit_state()
+    _save_engine_stats()
+    return {"released_cooldowns": {k: v for k, v in released.items() if v > 0},
+            "engines_forgotten": forgotten,
+            "cleared": ["circuit_breaker.json", "engine_stats.json"]}
+
+
+def engine_state_snapshot() -> dict:
+    """Read-only pool health: per-engine verdict + any active cooldown."""
+    health = engine_health()
+    cool = cooldowns()
+    for name, seconds in cool.items():
+        row = health.setdefault(name, {})
+        row["cooldown_seconds_left"] = seconds
+    return health
 
 
 # ─── 引擎产出统计（静默降级唯一能看见的地方）────────────────────────────────
@@ -1153,6 +1218,7 @@ def _save_engine_stats() -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(_ENGINE_YIELD, f)
         os.replace(tmp, path)
+        paths.harden_dir(os.path.dirname(path))
         paths.harden_file(path)
     except Exception:
         pass
@@ -1379,6 +1445,9 @@ async def metasearch(
     """
     backends = _resolve_backends(engines)
     status: dict[str, str] = {}
+    # Released cooldowns are dropped from the state file each round, so what a
+    # user reads in ~/.dhole matches what the pool actually does.
+    sweep_expired_cooldowns()
     # Rotate proxies per search call so no single IP gets rate-limited.
     _search_proxy = _get_search_proxy()
     # One engine instance per backend (cheap; primp/httpx clients are light).
@@ -1422,11 +1491,11 @@ async def metasearch(
 
     seen: dict[str, dict[str, Any]] = {}
     order: list[dict[str, str]] = []
-    # Diversity quorum: wait for at least MIN_ENGINES backends to contribute
+    # Diversity quorum: wait for at least `min_engines` backends to contribute
     # (not just enough results from one) so a single backend's bias/rate-limit
     # can't dominate - the cross-backend diversity is the robustness. A soft
-    # fallback returns at SOFT_DEADLINE once we have enough results even if some
-    # backends are dead/captcha'd (don't wait the full deadline for them).
+    # fallback returns at `_SOFT_DEADLINE` once we have enough results even if
+    # some backends are dead/captcha'd (don't wait the full deadline for them).
     min_engines = min(3, len(instances))
     soft_deadline = _SOFT_DEADLINE
     quorum_results = max_results + 4  # a little extra for the neural reranker

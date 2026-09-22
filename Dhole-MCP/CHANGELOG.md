@@ -9,12 +9,244 @@
 > 版本号是自己的，与上游版本不可比。`src/dhole_mcp/__init__.py` 中的
 > `__version__` 是版本的唯一权威来源。
 
+## [14.6] - 2026-09-22
+
+四批改动。前三批的共同毛病是**调用看起来成功了，但实际没做它承诺的事**。
+
+**修复**：schema 静默降级、首调 -32001 超时、描述与代码不一致、进程扫描的编码问题。
+**新增**：补齐三项用户能感知的能力 —— 代理池管理入口、安装体检、上手文档。
+**变更**：收敛工具描述，让 agent 在该用的时候选对工具，同时降低 connect-time 成本。
+
+### 修复（响应契约）
+
+- **失败时正文里塞错误/占位文本（BUG-5）。** 实测 DNS 失败返回 `content:["[No more content.]"]`、TLS 失败返回 `content:["[Fetch error: …tls handshake eof]"]` 且 `total_extracted_chars:87` —— 调用方读 `content[0]` 就把异常文本当正文，还把它的长度当成了页面体量。`_apply_chunking` 现在只在**页面确实有过正文**时才给 `[No more content.]`（翻页读完的场景保留原文案），两层 fetch 的异常分支与"全部层都失败"的提示块一律 `content:[]`、文本进 `error`（该字段的定义就是"错误 + 恢复提示"）。
+- **入参校验破坏统一响应形状（BUG-16）。** `url=""` 与 `url="example.com"` 此前 `raise`，被兜底成 `is_error` 的 MCP 结果，而 `resolve_url` 同类输入返回的是结构化 `{error, status:0}`。新增 `_invalid_request_result()`：空 url / 非 http scheme / 坏 schema / bulk 模式带 actions 全部返回正常 FetchResult（`status:0`、`content:[]`、`content_ok:false`、`next_action` 给出改法）。`tests/test_schema_param.py` 里"空壳 schema 必须抛"的旧断言随之改为"必须结构化拒绝且不发请求"——可见性没有降级，只是换了信道。
+- **`smart_fetch` 的 `timeout` 只是每层建议，不是整体预算（NEW-4，报告里表现为 -32001）。** 根因：`_adaptive_timeout` 学到 [5s,60s] 后**无视调用方的值**，HTTP 层再乘上 `retries=3` 与每个重定向跳转的独立超时，浏览器层拿到的是"已经超支之后"的 `timeout - elapsed` 且**下限 5s**。现在 `_auto_escalate` 按 deadline 逐层收敛（HTTP 超时不超过剩余预算、慢域名加成同样受限、预算不足 1.5s 时明确跳过浏览器层并说明），每层再被 `_with_budget()` 硬包一层；`smart_fetch` 的四个出口统一走 `_within_call_budget()` 兜底。预算耗尽返回结构化 `timeout:` 结果（说清耗尽于哪一层、`Raise timeout / force_fetcher='http' / 换源`），不再是客户端的 -32001。
+- **`css_selector` 在默认 markdown 模式下静默失效（BUG-8）。** 实测 `css_selector:"h1"` 返回整页 183 字符、`"blockquote.abstract"` 返回 4051 字符，只有 `extraction_type:"html"` 生效。根因不在选择器逻辑：收窄那段写的是 `page.css(...)` 而 dhole 自己的 Response 没有 `.css()`，`hasattr` 取到 False 后**悄悄退回整页**。改为 `_narrow_html_to_selector()` 用 lxml + CSSSelector 直接吃原始 HTML，markdown/text/article/html 四种模式一致；选择器没命中仍然退回整页（既有行为，日志里保留说明）。
+- **`parse` 把相对路径解析到 MCP 宿主进程目录（BUG-10）。** 实测错误指向 `D:\Program Files\Qoder\dhole_fixture.html`——既不是用户工作目录也不是家目录，而是宿主 cwd。现在依次尝试 cwd → `DHOLE_WORKDIR`（新增）→ 家目录，未命中时错误里**列出全部试过的路径**。顺带修掉 `parse` 的信封空洞（BUG-12）：成功时 `total_extracted_chars:0` 而正文有值、`summary`/`fetched_at`/`content_type`/`duration_ms` 全空、url 拼成 `file://D:\…`——现在统一过 `_apply_chunking`，正文按 smart_fetch 同样的规则截断（此前 50MB 文件会整份进上下文）。
+
+### 修复（agent 信号）
+
+- **反爬墙在 HTTP 200 上完全没有检测器（BUG-6 真因）。** 报告的结论是"检测只在 smart_fetch 生效、search 的 fetch_content 路径漏判"——不成立：fetch_content 就是调 `self.smart_fetch` 并原样搬运 `content_ok`（`server.py:3409`），实测**直接 smart_fetch 同一个搜狗验证码页也是 `content_ok:true`**。真因是 `_is_cloudflare_from_response` 只在 403/503 生效、`_AUTH_WALL_CONTENT_SIGNALS` 只有登录词。新增 `_is_bot_wall()`（`/antispider` 之类路径信号 + 中英验证码/`VerifyCode`/`unusual traffic` 等内容信号，并用 1500 字符长度门避开"正文就在讲验证码"的页面）；墙的检测排在 JS 壳启发式**之前**，否则"大 body 小正文"那一条会先把登录页判成需要渲染。
+- **`page_type` 与实际检测自相矛盾（BUG-12 后半）。** `error:"auth_wall_detected…"` 时 `page_type` 仍是 `unknown`，因为 `page_type_from_error()` 只映射了 PDF 路径的 `auth_required`。现在 `auth_wall_detected → auth_wall`，并新增 `captcha` 取值（`bot_wall_detected` / `bot_challenge_detected → captcha`），字段描述与工具描述同步。`next_action` 补了登录墙/验证码墙两条——原先它们写在 `content_ok` 为真的分支里，而墙必然让 `content_ok` 为假，**永远不会触发**。
+- **引擎有产出、被 dhole 自己的相关性过滤全丢时零解释（NEW-1，这批里最严重）。** 实测 `"how does dns resolution work"`：`engine_stats.json` 记录 bing 该轮 `usable:10 / http:200 / ok`，而调用方拿到 `total_results:0`、`error:""`、`engines_used:["bing"]`、`engine_empty:[]`，`next_action` 还让人"换个说法"——真因是网络层把无关页面当回答送回（bilibili 首页），改查询完全无用。现在全丢时 `error` 明说"引擎给了 N 条、被判为离题全部丢弃 + 通常是门户劫持/代理"，部分丢弃时在 `fetch_hint` 留痕。
+- **`site=` 在自动改写那一轮被静默放弃（NEW-2）。** 改写调用写死 `site=None`，实测 `site=theverge.com` 返回的全是 trustpilot/g2。改写轮现在保留站点约束（上游 `site:` 前缀 + 终域过滤都在），NOTE 里标明"仍限制在 site=…"；站点内确实无结果时给专门文案，而不是通用"没结果，换个说法"。
+- **article 提取的 author/date 恒为空（BUG-15）。** 同一份响应里 `metadata.author:"Emma Roth"`、`published_time:"2026-09-21T12:41:42+00:00"`，正文 JSON 里却是 `author:""`、`date:""`。新增 `_backfill_article_json()`：只填 `article`/`structured` JSON 中确实为空的 `author`/`date`/`description`，值取自已经解析好的 OpenGraph/JSON-LD，绝不覆盖 trafilatura 自己找到的。
+- **`extracted_type` 与实际请求不符（BUG-4/14）。** `_translate_response` 从不设置该字段，于是所有响应都写着默认的 `markdown`（article 模式也是），同 URL 同参数还会来回摆。现在如实回填请求的格式，且 article/structured **只在正文真的是 JSON 时**才标该类型——提取器退回散文时标 `markdown`，不做反方向的撒谎。
+- **`related_queries` 给的是摘要碎片（BUG-1）。** 实测 `["benedetto profile","before joining","covering laptops","deals writer","gadget spent"]`、`["stay"]`。两处改动：文档频次改为**按域名去重**（同一站点重复五次的作者签名不再"构成一个话题"，跨源佐证才是真正的信号），并丢掉以虚词/动名词开头的碎片；证据不足就少给或返回空，不再用一元词填空。
+- **`install dhole-mcp[all] and retry` 泄露给 agent（BUG-9）。** 实测同一条 `fetch_hint` 前半句是"依赖已装但未启用"，后半句却让人去装依赖。新增 `_rerank_absent_reason()`：没有记录到原因时如实说"本进程尚未加载重排器，`dhole -v` 可查"，不再发明安装指令。
+- **`max_results` 越界被静默钳制（BUG-13）。** `max_results=100` 现在在 `fetch_hint` 里说明"超出 1–50 支持范围，按 50 返回"，不会读成"只有 50 条结果"。
+- **`content_age_days` 用 -1 表示未知（BUG-2）。** 负数与"未来一天的内容"混淆，而后者是另一种断言。未知/日期在未来（脏数据）现在都返回 `null`，字段描述同步说明"null 不是负龄"。
+- **list 页的下一步指向导航栏（NEW-3）。** 实测 theverge.com/news 的 `next_action` 是 `Top targets: /, /auth/login, /subscribe`——按 DOM 顺序取前三条引用，取到的是站点头。新增 `_best_list_targets()`：排除 chrome/登录/订阅/源站首页/静态资源，偏好深层路径与带锚文本的链接，同域加分。
+- **`options` 被逐字符解析（BUG-19，未稳定复现）。** 报告的重启后首轮 `['{','"','m',…]` 复验时没能复现（字符串形态的 options 现在能正确解析），但产生它的代码路径确实存在：`set(options)` 对 str 就是字符集合。`_dispatch` 现在统一走 `_coerce_options()`（字符串按 JSON 解析、非对象如实报错），`_strict_options` 也加了同形的护栏——不再依赖"客户端总是发对象"。
+
+### 修复（审计遗留六条）
+
+审计阶段登记的六条既有缺陷（当时只记录、未修）这次一并修掉；每条都先在**修复前**的 `git archive HEAD` 树上跑出对照数据，再在修复后复测。这六条里只有一个新增开关（KB-4 的环境变量），其余都是在把"代码实际做的事"和"它说出口的话"对齐。
+
+- **代理探活不再无条件外发（KB-3）。** 配了代理池时，第一次搜索就会后台向 `https://example.com` 逐个代理发探活请求 —— 哪怕池子全健康、没有任何冷却或死代理，而探活唯一的作用是复活失败过的代理。`ProxyPool.needs_probe()` 只在真有 cooled/dead 时为真，`_kick_health_check()` 据此提前返回；"冷却中的代理仍会被提前复活"这半边单独钉了测试。对照：修复前健康池 `probe task created: True | health_check calls: 1`，修复后 `False | 0`。
+- **410 Gone 真的走 archive 回退（KB-9）。** `_should_try_archive()` 对 410 返回 False，而调用点的状态元组写着 `(404, 410, 451)` —— 410 那一项永远为假：410 的页面从不去 Wayback 找快照（404/451 都会）。gate 现在认 410；元组提成 `_ARCHIVE_FALLBACK_STATUSES` 常量，并写明它**故意**比 gate 窄（网络失败走到这里仍应升级到浏览器层）。对照：修复前 `gate(410)=False`、`archive asked: []`、返回空的 410；修复后 `gate(410)=True`、`archive asked: ['https://gone.example.com/x']`、返回快照正文。
+- **启动浏览器预热可关闭（KB-4，新环境变量 `DHOLE_NO_BROWSER_PREWARM`）。** 裸启动会先向 `1.1.1.1:443` 发一次 TCP preflight 再把隐身浏览器拉起来 —— 那时 agent 还什么都没问。预热本身是有意的（省 3-5 秒冷启动），但此前没有任何开关能关掉它，离线机器/计费网络/严格出网策略只能接受这笔账。设 `1` 后整段预热跳过（一个包都不发），浏览器回到"第一次真正需要时懒加载"；默认行为不变。对照：设了开关再跑修复前的代码，`connect ('1.1.1.1', 443)` 照发；修复后 `socket attempts: []`。
+- **首次搜索下模型的说明补齐（KB-5）。** "首次神经搜索会下载 ~279MB 模型"这事 README 早已写明（重排模型一节与状态表都标着"首次神经搜索时下载"），缺的是断网/多机怎么办 —— 现在补上"把 `~/.dhole/models/<名字>/` 整个目录（三个文件）拷过去就不再联网"，并用测试钉住这个不变量：文件齐了 `_ensure_model()` 一个字节都不下载。
+- **"验的是哪份代码"有了守卫（KB-8）。** 本机 `site-packages` 里装着一份旧构建的 `dhole_mcp`，pytest 之所以验到 src 全靠 `pyproject.toml` 的 `pythonpath = ["src"]`；绕开它（直接 `python -c`、装了旧轮的 venv、改坏配置）时断言会"通过"但验的是旧代码。新增 `tests/test_import_provenance.py`：导入必须落在本 checkout 的 `src/` 下、不许命中 site-packages —— 把 pythonpath 关掉跑，这条会红（`-o pythonpath=` 实测 1 failed）。
+- **fixture 哈希改按仓库字节记录（KB-11）。** `tests/engine_fixtures` 里 bing A/B 与 yandex 的 `sha256` 记的是**工作树 CRLF 字节**的哈希，而 git 存的是 LF（`.gitattributes` 的 `* text=auto eol=lf`）：本机因为还留着 `.gitattributes` 生效之前的 CRLF 残留而通过，换任何全新克隆 / 新 worktree 一 checkout 就失败。现在工作树字节与记录值都以仓库字节为准（`sogou_weixin.html` 的 blob 是 `-text`、行尾原样入库，本就与检出方式无关）；四个 fixture 在"全新克隆模拟"里逐个核对全部 MATCH。此前记录里"全新检出只失败 1 条"是断言在第一个不匹配处就停了，四个都得单独核对。
+
+本批新增/加强的测试：`tests/test_proxy.py`（探活门控）、`tests/test_server.py`（预热开关与解析）、`tests/test_bug_report_regressions.py::TestArchiveFallback`、`tests/test_import_provenance.py`、`tests/test_reranker_models.py`（预置不下载）、`tests/test_engine_parsers.py`（哈希不变式）。四分支合并后全量 **1157 passed, 5 skipped**（默认套件，0 失败），`ruff check .` 干净。
+
+### 新增（引擎健康状态可见 + 可重置）
+
+报告的 BUG-17 把"冷却状态持久化且无自动恢复"当成最严重的问题。**这条被推翻**：`_load_circuit_state()` 读盘时就过滤过期项、`_is_circuit_open()` 实时比时钟、`_record_success()` 立即清除，冷却本来就自动到期；`engine_stats.json` 只被 `engine_health()` 和诊断读取，**没有任何代码用它 gate 引擎**，`engine_preempted` 是当轮早退配额取消而非持久状态。对照组里"清文件才恢复"是把时间先后当成了因果（实测清空状态前的默认池搜索里 brave 就已经在 `engines_used` 中了）。
+
+真正剩下的三个缺口按建议修掉：
+
+- **过期记录不再留在磁盘上误导人。** 加载时若丢弃了过期项就回写文件；每轮搜索再 `sweep_expired_cooldowns()` 清一次，让 `circuit_breaker.json` 与池子的真实行为说的是同一件事。
+- **`cache_clear(engine_state=true)`** 立即忘掉冷却与产出记录（内存 + 两个文件），响应新增 `engine_state_reset` 与 `engine_health`（每个引擎的判定 + `cooldown_seconds_left`）——不需要再"手动删文件 + 重启进程"，也不用换会话。
+- **`dhole engines list|reset`** 是同一件事的命令行入口（纯 stdlib 读状态文件，半坏安装上也能跑）；`dhole -v` 的能力面板新增 `engine cooldowns` 行，显示还剩多少秒。
+- **`circuit_open` 的报告现在带上重试倒计时**（`…skipped; retried in 90s`），把"永久被墙"和"90 秒后重试"分开；`preempted` 的文案明说"不是拦截、不是失败、不涉及网络"——第一轮测试者正是把它读成"dhole 没走 VPN"。
+
+
+### 修复（schema 参数静默失效）
+
+- **`smart_fetch` 传 `schema` 仍返回 markdown（结构化提取不可用）。** 门条件写的是
+  `if schema and isinstance(schema, dict) and (schema.get("properties") or ...)`，于是
+  两个形态都会**静默退回 markdown 并返回 200**：① `schema` 以 JSON **字符串**送达
+  （部分 MCP 客户端会序列化嵌套对象，agent 也会）被 `isinstance(..., dict)` 挡掉；
+  ② `schema` 是 dict 但没有非空 `properties`（如 `{"type": "object"}`）。调用方完全
+  无从知道 schema 被丢掉了 —— 这正是 `_strict_options` 存在的意义要防的那类失败。
+  现在新增 `_normalize_schema()`：字符串形式被解析成 dict；**空壳 schema 直接报错**
+  并给出可用示例，不再静默降级。校验前移到 `smart_fetch` 入口（single 与 bulk 两条
+  路径共用），并给 `options.schema` 补上与其他提升参数一致的兜底（顶层优先）。
+  补 `tests/test_schema_param.py`（15 例，含「字符串 schema 不得被丢弃」「空壳 schema
+  必须在发起任何抓取前报错」两条回归）。
+
+### 修复（首次调用 -32001 超时）
+
+- **`smart_fetch` 偶发 MCP timeout（-32001），首次报错、重试即恢复。** 根因是**一次性
+  的旧状态目录搬移同步跑在事件循环上**：`cache._ensure_db()` 在首次缓存访问时调用
+  `paths.migrate_legacy_cache_dir()`，而它会搬 `cache.db` 加整个 `models/`（90–450MB；
+  跨卷时 `shutil.move` 退化为复制+删除）。实测搬 120MB 模型就把事件循环**完全停摆
+  2.09s**（心跳间隔本该 0.05s），期间 MCP 服务发不出任何响应，首个工具调用被判超时；
+  重试时一次性标志已置位，于是瞬间成功。修复：新增
+  `paths.migrate_legacy_cache_dir_async()`（走 `asyncio.to_thread`），`cache._ensure_db`
+  与 `reranker.ensure_reranker`（`model_present()`）改用它；并把该搬移提到启动预热
+  （`_prewarm_state_dir`）里跑，让成本落在启动窗口而不是首个工具调用上。实测同一场景
+  事件循环停滞 **2.09s → 0.06s**。
+- **同一搬移的并发语义顺带修正。** 原先用「先置位再干活」的普通 bool，第二个调用者会
+  立刻返回、然后去读一个**正在被搬移**的 `cache.db`。改为 `threading.Lock` 串行化：
+  第二个调用者等待第一个搬完再返回。
+- **浏览器会话获取纳入调用预算。** `_auto_escalate` 里 `_ensure_auto_session()` 会排队
+  等 `_auto_session_lock`，而启动预热持锁跑完整个浏览器启动（上限 30s）——这是该调用
+  路径上**最后一个无界步骤**，足以把调用推过客户端请求超时。现在按本次调用的剩余预算
+  限时等待（只限等待，**不取消**已在进行的启动，避免留下半开的浏览器），拿不到就降级
+  返回 HTTP 层结果并标注 `escalation_path=http(browser_busy)` 与可操作提示。不传
+  `lock_wait` 的调用方（`screenshot` 等）行为不变。
+  补 `tests/test_paths.py::TestMigrationNeverBlocksTheEventLoop`（3 例）与
+  `tests/test_server.py::TestStealthySessionBudget`（3 例）。
+
+### 修复（描述与代码不一致）
+
+- **`parse` 关于 PDF 的说法是假的。** 它写「PDF 用 smart_fetch（有 OCR）」，内部报错提示
+  更具体地教人用 `smart_fetch(url='file:///...')` —— 但 `file://` 在
+  `security._BLOCKED_SCHEMES` 里，裸路径与正斜杠路径同样被拒，三条路全不通。实测：
+
+  ```
+  parse(.pdf)                    -> content_ok=False, "Use: smart_fetch(url='file:///...')"
+  smart_fetch('file:///...')     -> SecurityError: URL scheme 'file' is not allowed
+  smart_fetch('C:\\...\\x.pdf')  -> SecurityError: URL contains backslash character
+  ```
+
+  照描述走的 agent 会白烧两次调用。**现已让 `parse` 自己解析 PDF**（见下），
+  描述与内部提示同步改准。
+
+- **`instructions` 写「searches 5 engines」，实际默认池是 6 个**（`DEFAULT_ENGINES`）。
+  数字改由常量计算，并加测试守卫。
+
+### 修复（本地 PDF 无路可走）
+
+- **`parse` 声明支持 `.pdf` 却从不解析它。** `SUPPORTED_EXTENSIONS` 一直含 `.pdf`，
+  但实现只返回一句「用 `smart_fetch(url='file:///...')`」—— 而 `file://` 在
+  `security._BLOCKED_SCHEMES` 里，裸路径含反斜杠被拒、正斜杠路径不是合法 URL，
+  三条路全不通。于是本地 PDF 实际无路可走，照描述走的 agent 白烧两次调用。
+  现在 `parse` 读文件字节后调 `pdf_extractor.extract_pdf()` —— 与 `smart_fetch`
+  处理 PDF URL 是**同一个提取器**，所以本地文件拿到完全一致的处理：版面感知
+  markdown、扫描件 OCR 回退、质量分。
+- **没有放宽安全边界**：`parse` 收的是调用方给的文件路径，本来就在读
+  `.docx/.xlsx/.csv/.html`，加 `.pdf` 不新增任何能力；`smart_fetch` 的 `file://`
+  拦截是 **URL 侧**的 SSRF 守卫，是另一回事。既有的路径穿越校验照旧生效。
+- 失败如实出声：扫描件（无文字层）返回 `no extractable text` 并说明原因，而不是
+  空内容。实测 `tests/background_checks.pdf` 提出 6,716 字符 markdown，
+  `tests/dummy.pdf`（纯图片）如实报错。
+
+### 修复（顺带发现）
+
+- **`_other_dhole_pids()` 在中文 Windows 上静默失效。** 它用 `subprocess.check_output(...,
+  text=True)` 读 `tasklist`，而 Windows 控制台按 OEM 代码页（中文系统 GBK）输出；
+  Python 的 UTF-8 模式下 `text=True` 的解码器是 utf-8，于是「没有匹配进程」时
+  tasklist 的中文提示解码失败。异常发生在读取线程里，`check_output` 只抛出无关的
+  `TypeError`，被 `except Exception` 吞掉后**永远返回空列表** —— 有残留进程也看不出来。
+  两处调用加 `errors="replace"`（要解析的 `dhole.exe` 与 PID 全是 ASCII）。
+  这是 `--doctor` 的「no stale servers」检查，属静默假阴性，由上一轮新接线的
+  doctor 路径首次常态化触发。
+
+### 新增（`dhole proxy` 子命令）
+
+- **代理池此前只能靠手写配置文件或环境变量维护，而 `search_proxy.py` 的模块
+  docstring 却宣称有 `dhole proxy add/list/remove/clear`** —— 文档承诺了一个不存在的
+  命令（实测 `dhole proxy list` 报 `unrecognized arguments`）。轮换核心一直是完整的，
+  缺的只是写入侧：`add_proxy` / `remove_proxy` / `clear_proxies` / `list_proxies` /
+  `save_proxies` / `reset_pool` 从未进过本仓库（`git log -S 'def add_proxy'` 为空，
+  不是后来删掉的），本次补齐并接到 CLI。
+- 失败一律出声：重复、不支持的 scheme、索引越界、池满（20）都报错并给非零退出码，
+  不再有「以为加上了、三轮搜索后才发现没有」这种状态。
+- **凭据永不上终端**：配置文件按文档是明文存储，但 `list` / `add` 的输出一律走
+  `_redact()`；`tests/test_proxy_cli.py` 有两条断言专门盯着密码不出现在 stdout。
+- 新增 `_env_proxy_source()`：`list` 与 `--doctor` 会说明当前生效的是哪个环境变量。
+  这解决本机真实踩到的一个坑 —— **Windows 上 `os.environ` 大小写不敏感**，沙箱/CI 设的
+  小写 `https_proxy` 会被 `HTTPS_PROXY` 查到并静默进池（那 13 个 proxy 测试误红的根因）。
+
+### 新增（`dhole --doctor`）
+
+- `-v` 只报告「能做什么」，doctor 补上「装得对不对」：启动器是否在 PATH、**模块实际从
+  哪个文件加载**、发行元数据与模块版本是否一致、启动器残留、残留进程、核心依赖、状态
+  目录可写性、代理池，最后附能力面板。每项失败都打印可直接复制的修复命令，并以退出码
+  `1` 结束，可用于脚本或 CI。
+- `module loaded from` 一行是刻意的：装的是构建好的 wheel 而非 editable 时，pytest 会
+  静默跑 site-packages 里的旧副本 —— 那行让这件事一眼可见。
+- doctor 永不抛异常（它正是用户在「已经坏了」时才跑的命令）：`repair_script_path()`
+  同样依赖状态目录，在目录不可用时也会失败，已一并收进 try 保护，并有测试覆盖。
+- 复用了 `updater.py` 里既有但未接线的 `_heal_cmd` / `_diagnose` / `_write_repair_script`。
+
+### 变更（工具描述与 instructions）
+
+描述是 agent 判断「该用哪个工具」的唯一依据，因此这次改的是**路由准确性**，
+顺带删掉重复与营销话术。实测（tiktoken `cl100k_base`，客户端实际收到的 wire JSON）：
+
+|                  | 改前     | 改后             |
+| ---------------- | -------- | ---------------- |
+| `smart_fetch`    | 1268     | 981              |
+| `smart_search`   | 686      | 519              |
+| `smart_crawl`    | 633      | 570              |
+| **connect 总计** | **3774** | **3264（−14%）** |
+
+- **补上一条缺失的路由规则**：`smart_fetch(urls=[...])` 与 `smart_crawl(crawl_urls=[...])`
+  都能抓一批已知 URL，两边描述都没说该用哪个，agent 只能猜。现在 `smart_crawl`
+  明确写出「已有确切 URL 就用 smart_fetch，不必爬」。
+- **修掉一处自相矛盾**：`smart_search` 描述让人「再去 smart_fetch 高相关结果」，而它自己的
+  `options.fetch_content` 就是干这个的 —— 按描述走会白花 N 次调用。现在两者串成一句。
+- **删除重复**：`instructions` 的 GOTCHAS 与 `smart_fetch` 的 RESPONSE SIGNALS 曾逐条
+  重复（content_ok / next_action / next_offset / cache_ttl / DataDome）。现在
+  `instructions` 只留**跨工具的规则**，`smart_fetch` 只留**该工具的信号清单**。
+  `smart_fetch` 描述里与参数说明重复的能力清单（pages/actions/css_selector/
+  include_links 等）改为一行索引。
+- **删掉无信息量的句子**：营销式复述（"returns the real page content built-in fetch
+  often blocks or reduces to a stub"）、参数默认值的两处重复、`options` 里 6 个
+  「rarely needed」的防检测调参键（改为「存在且默认值够用」一句带过，仍可从
+  `_strict_options` 的报错里发现）。
+
+### 文档
+
+- README 补三块上手内容：**让 agent 自己装**（一段可直接粘贴的 prompt）、
+  **和谁比、不跟谁比**（按场景划分的定位表，不对其他项目的能力细节下断言）、
+  **上下文开销**（连接时合计 tokens，含逐工具拆分与复现方法），数字随描述收敛
+  同步更新为 3,264；并注明其中约三成是 schema 的结构开销，压措辞对它无效。
+- 配置表补上 `search_proxies.json` 状态文件，以及 Windows 大小写那一坑的说明。
+
+### 修复（复验后追加）
+
+
+- **`cache_clear(engine_state=true)` 的 `engine_health` 恒为空对象。** 不是竞态也不是偶发：`engine_state_reset()` 会清空 `_BACKEND_HEALTH` 与 `_ENGINE_YIELD`，而快照就取在它**之后**，所以这个字段结构上不可能有值 —— 而它正是本版新加的、让调用方看"重置释放了什么"的字段。快照改到重置**之前**；`engine_state=true/false` 现在报告的是同一件事（调用当刻的池子）。释放的冷却原先只在 `message` 文本里，信息没丢，只是没落在被指引去读的那个字段上。
+- **`dhole` 的 repair 脚本写进真实 home，不跟随 `DHOLE_HOME`。** `cli._run_repair()` 把路径写成`expanduser("~")/.dhole/repair.py`，而 `updater.repair_script_path()` 走 `paths.home()` —— 同一个产品对"我的状态在哪"给了两个答案：改了状态目录的用户，其余状态都跟着走，只有 repair 脚本落到真实 home 并从那里执行。现在两条路都走 `paths.home()`。
+
+### 测试
+
+- 新增 `tests/test_tool_descriptions.py`（35 例），把描述当契约来钉：
+  - **路由规则**：8 条「哪个工具该把 agent 导向哪个」的守卫，每条对应一个真实的误用场景
+  - **事实性**：instructions 的引擎数与 `DEFAULT_ENGINES` 一致、`smart_search` 列出的
+    默认池与常量一致、`parse` 必须声明且真的实现本地 PDF、任何描述不得推荐 `file://`
+  - **一致性**：描述里 `foo=` 提到的参数必须真的存在（防「描述承诺了不存在的参数」）
+  - **预算**：逐工具与合计的 wire 体积上限，留约 10% 余量 —— 让「描述变胖」变成
+    有意识的动作，而不是无声漂移
+- 新增 `tests/test_proxy_cli.py` 与 `tests/test_doctor.py`，共 49 例；
+  `tests/test_doctor.py` 另增 3 例覆盖进程扫描的编码安全。
+- `conftest.py` 的 `_no_real_home_state_writes` 增补第四个可写状态文件
+  （`search_proxies.json`）的路径接管 —— 否则测试会把真实凭据写进用户的 `~/.dhole`。
+- `tests/e2e_mcp_test.py::test_tool_definitions` 里两条断言在 13.16 重写工具描述
+  之后就再没成立过（`pytest -m e2e` 默认不跑，所以一直没暴露）：`"Fetch any URL" in
+  smart_fetch 描述` 与 `"cache" in smart_search 描述`。前者改为断言现描述里的稳定
+  特征，后者改挂在 `options.cache_ttl` 这个**公开选项**上而不是散文上；并补一条
+  `schema` 必须同时出现在描述与 `inputSchema` 里的守卫。
+- `tests/test_bug_report_regressions.py`（68 例）按报告的编号逐条钉住复现证据与修复后的契约。`tests/test_tool_descriptions.py` 的 `cache_clear` 体积预算 550 → 860（该工具新增了 `engine_state` 与使用时机说明），`tools/list` 实测字符数 11809（预算 12500）；README 的 token 表尚未按本版重新测（需要 `tiktoken`，数字会小幅上移）。
+
+测试 949 → 1129，全部离线（默认运行零网络）；`-m e2e` 9 例全绿。
+
+
 ## [14.5] - 2026-09-21
 
 一次以「让静默降级可被观测、把说得太满的地方改准」为主的版本。测试 755 → 949，
 仍然全部离线（默认运行零网络）。
 
 ### 修复（静默降级）
+
 - **`engines_consensus` 不再在降级池上伪装成「全员一致」。** 分母原先是「本轮实际
   返回了结果的索引家族数」，于是 4 个家族 empty/被墙、只剩 1 个活着时，那 1 个的每条
   结果都渲染成 `1 of 1` —— 一个本该削弱结论的信号反过来给结论加了分。分母改为由配置池
@@ -54,6 +286,7 @@
   类名）。修复前后各实测确认（0 可用 → 5/10 可用）。
 
 ### 新增（可观测性）
+
 - **每引擎解析产出统计。** 熔断器只记「引擎拒不拒绝我们」，记不到「200 好好答了但
   xpath 取不到东西」。现在每轮记 item_nodes / usable / post-filter kept 三个整数，判据
   **不依赖历史基线**（新装机第一次搜索就能判漂移），含糊那一格样本不足时如实报
@@ -78,6 +311,7 @@
   跑完，真实 `~/.dhole` 下所有文件的 size/mtime 零变化。
 
 ### 安全
+
 - **浏览器层补齐 SSRF 守卫（此前 README 说"盲打而非数据外泄"，实测那句话是错的）。**
   入口 URL 过了 `validate_url`，但浏览器内部的重定向 / 子资源 / 页面 JS 的 fetch 都不过 ——
   一个被 JS 壳或反爬墙逼着升级到浏览器的页面，只要把浏览器引到 `http://169.254.169.254/`
@@ -122,6 +356,7 @@
   供 preflight 与后续浏览器层共用，避免出现第二份判定实现。
 
 ### 变更（默认引擎池）
+
 - **sogou_weixin（搜狗微信）进入默认池**：默认池 5 → 6 引擎、3 → 4 索引家族。理由是它
   国内裸网直连（实测 0.2-0.9s），让国内自然可达的引擎凑到 3 个（bing/yandex/sogou_weixin），
   恰好够 `min_engines=3` 的多样性门槛——不必为了凑引擎数去挂 VPN；内容池也是独家的
@@ -148,6 +383,7 @@
     能打开，但不是文章原始 URL。
 
 ### 变更 / 修正的说明
+
 - `dhole --cache-ttl` 此前是**死参数**（默认值在函数定义时被焊进签名，实例值永远被遮住），
   现已生效；`cache_ttl=0` 绕开缓存的既有语义不变。
 - 意图展开的 core 引擎集合去掉三个从未存在的名字（mojeek/startpage/google/qwant），
@@ -164,6 +400,7 @@
 ## [14.4] - 2026-09-21
 
 ### 新增
+
 - **重排模型可选，默认换成中英双语的 `bge-zh`。** 相关性排序用一个
   本地 cross-encoder——它回答的是「这条结果跟问题真有关吗」，引擎自己的排名给
   不了这个信息。注册三个模型：
@@ -192,12 +429,14 @@
   目录改名不覆盖、配置路径落在同一根下。
 
 ### 变更
+
 - `reranker.MODEL_ID` / `MODEL_REV` / `MODEL_DIR` 保留为兼容别名（指向默认
   模型）；运行时取模型请用 `active_model()` / `active_model_dir()`。
 
 ## [14.3] - 2026-09-21
 
 ### 修复（信任信号）
+
 - **`envelope.classify_source` 的 gov 判定可被任意域名伪造。** 原实现测
   `".gov." in host`，于是 `foo.gov.attacker.com`（完全由攻击者注册）被判为
   `gov` + `is_official=True` 并直接交给 agent 当权威信号。改为
@@ -209,6 +448,7 @@
   gov / edu / github 为真）。
 
 ### 修复（作用域）
+
 - **缓存按请求上下文分区。** 缓存键原本只有 URL + 抽取参数，而
   `~/.dhole_mcp_cache/cache.db` 是整机共享的：带 cookies/auth 抓来的正文会被
   之后一次匿名抓取原样回放（`cached=True`、`content_ok=true`），
@@ -233,6 +473,7 @@
   无人值守重装」这条路径可以被关掉。
 
 ### 新增
+
 - **`dhole -v` 报告真实能力。** 附上 browser tier / pdf+ocr / neural rerank（含
   模型是否已下载）/ search pool 四行状态。这些能力**缺失时全部静默降级**，
   所以诊断命令是唯一能看出"装了个更弱的版本"的地方。
@@ -249,6 +490,7 @@
   一律不执行（正文与服务器自写的 `next_action`/`summary` 走同一条信道）。
 
 ### 变更
+
 - **运行时文件全部收敛到一个目录：`~/.dhole/`。** 之前状态在 `~/.dhole/`、缓存
   与模型在 `~/.dhole_mcp_cache/`——「这工具在我机器上留下了什么」要两个目录才
   答得全，卸载说明也不完整。现在 `src/dhole_mcp/paths.py` 是唯一事实来源
@@ -276,12 +518,14 @@
 ## [14.2.1] - 2026-09-20
 
 ### 变更
+
 - PyPI 描述改为中英双语简短版（中文在前）。代码与行为零变化——发版只为刷新
   PyPI 元数据（PyPI 发布后描述不可修改，只能随新版本生效）。
 
 ## [14.2] - 2026-09-20
 
 ### 新增
+
 - **KeyedApiEngine 抽象 + 三个新 keyed 引擎：`tavily` / `exa` / `bocha`。**
   均为 POST JSON + 密钥的 API 后端，`engines=` 按名选择，**默认不跑**
   （每次调用都消耗真实配额）。博查国内裸网直连、Bing 同源索引，`timelimit`
@@ -298,6 +542,7 @@
   10 分钟并持久化，任何一次成功清零——被墙引擎不再每轮搜索陪跑
 
 ### 修复
+
 - **Bright Data 的 401/403 不再伪装成「没有结果」**：抛 `BrightDataAuthError`
   进 status（`error:BrightDataAuthError`），且不触发 60 秒熔断——key 错了
   冷却不会变好
@@ -307,6 +552,7 @@
   调高 deadline 对它无效），下限仍 20 秒
 
 ### 变更
+
 - **keyed 引擎策略：显式点名才执行**。Bright Data 原先是「设了 key 每次
   搜索必调」；三个付费引擎并存后隐式全开等于每搜三笔配额，故统一为
   `engines=` 点名才调用，免费默认池不变
@@ -316,6 +562,7 @@
 ## [14.1] - 2026-09-20
 
 ### 移除
+
 - **下线 14.0 的全部改名兼容层。** 确认所有 client 配置均已迁移到
   `dhole` / `dhole_mcp` / `DHOLE_*`：
   - 删除 `hound` CLI 命令别名（`[project.scripts]`）
@@ -326,6 +573,7 @@
 ## [14.0] - 2026-09-20
 
 ### 重大变更（破坏性）
+
 - **项目更名：`hound-mcp` → `dhole-mcp`。** 原名与 PyPI 上的其他项目撞名，
   自更新也因此长期关闭。改名覆盖：
   - Python 包目录 `src/hound_mcp/` → `src/dhole_mcp/`，CLI 命令 `hound` → `dhole`
@@ -338,6 +586,7 @@
   `dhole-mcp` 发布到 PyPI 后用 `DHOLE_UPDATE_PACKAGE` 打开自更新。
 
 ### 兼容措施（迁移期零破坏）
+
 - 旧环境变量 `HOUND_*` 在包导入时自动迁移为 `DHOLE_*`（同名 `DHOLE_*`
   优先），既有 client 配置里的 env 无需改动。
 - 保留 `hound` CLI 命令别名与 `hound_mcp` 兼容模块（导入时发
@@ -347,6 +596,7 @@
 ## [13.16] - 2026-09-20
 
 ### 修复
+
 - **`links.py` 的 `_norm_host` 会损毁 w 开头的域名。** 它用 `lstrip("www.")` 剥离
   `www.` 前缀，但 `lstrip` 是按字符集剥离而非剥字符串：`wikipedia.org` 变成
   `ikipedia.org`、`web.example.com` 变成 `eb.example.com`、`www.wikipedia.org`
@@ -362,6 +612,7 @@
   `content_ok=false` 与脱敏后的 `error` 字段，Agent 能看到缺口及其原因。
 
 ### 变更
+
 - **清除"刻舟求剑"式测试（-13 +1）。** 删除把当前实现快照进断言的变更
   探测器：4 个签名/属性存在性测试（`inspect.signature` 查参数、
   `hasattr` 查字段——只在改名时报假警，抓不到行为 bug）、2 个搜索引擎池
@@ -400,12 +651,14 @@
   `DHOLE_UPDATE_*`）。
 
 ### 新增
+
 - `include_media` 现在也能抓取懒加载图片：当 `src` 为空或 `data:` 占位图时，
   从同一个 `<img>` 标签读取 `data-src`（`src` 是真实 URL 时仍优先）。
 
 ## [13.14] - 2026-09-10
 
 ### 修复
+
 - **日志凭据泄漏。** `fetcher.py` 重试时把原始异常文本写进 `logger.warning`，
   含 `user:pass@` 的代理 URL 会落进日志。现统一走 `security.redact_api_key()`
   （代码库其他地方已在用）。
@@ -420,6 +673,7 @@
   `server.py`），重命名歧义变量 `l`。
 
 ### 变更
+
 - **版本单一来源。** `pyproject.toml` 不再硬编码 `99.0.0`，改经
   `[tool.hatch.version]` 读取 `src/dhole_mcp/__init__.py` 的 `__version__`。
   此前 `pip show` 报 99.0.0、CLI 报 11.1.8、package.json 写 11.1.6，三处
@@ -440,12 +694,14 @@
   `pi-extension/extensions/dhole.ts` 不在本仓库中。
 
 ### 新增
+
 - `.github/workflows/test.yml` 与 `.github/workflows/lint.yml`——仓库此前
   没有 CI，测试套件和 lint 无强制。
 - `CONTRIBUTING.md` 与本 changelog。
 - `[tool.ruff]` 配置及 `dev` extras 中的 `ruff`。
 
 ### 已知缺口
+
 - 抓取工具的 `auth` / `proxy_auth` 只校验不生效：`HTTPSession` / `http_get`
   不接受它们。当时保留原行为；见 `src/dhole_mcp/server.py` 中 `bulk_get`
   的注释。（已于 13.15 修复。）

@@ -4,7 +4,7 @@ Runs a cross-encoder (query, title+snippet) -> relevance score, in-process via
 ONNX. It answers "does this result actually match the query?" — something the
 source engines cannot tell you, since each engine only returns its own order.
 
-Two models are registered (see MODELS below); the ACTIVE one is chosen by
+Three models are registered (see MODELS below); the ACTIVE one is chosen by
 ``~/.dhole/config/reranker.json`` (``{"model": "<name>"}``), default
 ``bge-zh``. Unknown names are rejected, never silently mapped.
 
@@ -155,7 +155,8 @@ def active_model_dir() -> Path:
     """Local directory for the active model (created on download)."""
     return paths.models_dir() / active_model().name
 MAX_SEQ = 512
-# Sanity floor so a truncated/failed download is rejected (real onnx is ~80MB).
+# Sanity floor so a truncated/failed download is rejected; each model's own
+# 'min_bytes' is the precise check (this global value is the loose outer bound).
 MIN_MODEL_BYTES = 50_000_000
 
 
@@ -469,7 +470,9 @@ async def ensure_reranker(*, download: bool = True) -> Optional[_Reranker]:
     global _reranker_lock
     if _reranker is not None:
         return _reranker  # type: ignore[return-value]  # warm fast path (no lock)
-    if not download and not model_present():
+    # model_present() is blocking: on first use it can move a pre-14.3 legacy
+    # cache/model tree (see paths.migrate_legacy_cache_dir). Keep it off the loop.
+    if not download and not await asyncio.to_thread(model_present):
         return None
     if _reranker_lock is None:
         _reranker_lock = asyncio.Lock()
@@ -483,7 +486,7 @@ async def ensure_reranker(*, download: bool = True) -> Optional[_Reranker]:
             return _reranker  # type: ignore[return-value]
         if _reranker_tried:
             return None  # a previous load FINISHED and failed; don't retry this process
-        if not download and not model_present():
+        if not download and not await asyncio.to_thread(model_present):
             return None
         return await asyncio.to_thread(_load_reranker)
 
