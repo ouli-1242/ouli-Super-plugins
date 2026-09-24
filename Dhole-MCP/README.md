@@ -79,9 +79,9 @@ playwright install chromium      # 反检测浏览器引擎（~150MB，完整版
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `smart_fetch`  | 抓取任意 URL：自动反爬升级、PDF/OCR、批量、聚焦提取、页面交互、结构化提取                                                                     |
 | `smart_search` | 无密钥网页搜索：多引擎并行、神经重排序、可同时抓回全文                                                                                        |
-| `smart_crawl`  | 同域最佳优先爬取，支持 sitemap 模式与关键词过滤                                                                                               |
+| `smart_crawl`  | 同域最佳优先爬取，支持 sitemap 模式、关键词过滤与 `path_include`/`path_exclude` 子树限定（`'/docs'` 含 `/docs` 及其下全部，**不含** `/docs-old`）                                                                                               |
 | `screenshot`   | 页面截图（多模态代理专用）                                                                                                                    |
-| `parse`        | 本地文件解析（.html/.htm/.xhtml/.docx/.xlsx/.csv/.pdf → Markdown）；相对路径按 `cwd` 参数 → `DHOLE_WORKDIR` → 服务器进程 cwd → 主目录依次尝试 |
+| `parse`        | 本地文件解析（.html/.htm/.xhtml/.docx/.xlsx/.csv/.pdf → Markdown）；`.html`/`.csv` 按字节探测字符集（`encoding=` 可覆盖）；相对路径按 `cwd` 参数 → `DHOLE_WORKDIR` → 服务器进程 cwd → 主目录依次尝试 |
 | `feed_fetch`   | 批量抓取 RSS/Atom feed 最新条目                                                                                                               |
 | `resolve_url`  | 解析 URL 最终地址（跟随重定向，不下载页面体）                                                                                                 |
 | `cache_clear`  | 清除抓取缓存；`engine_state=true` 同时重置引擎冷却与产出记录，响应回报 `engine_health`                                                        |
@@ -132,7 +132,9 @@ playwright install chromium      # 反检测浏览器引擎（~150MB，完整版
 | `DHOLE_SEARCH_FEEDBACK`                                              | 设 `1` 开启隐式域名偏好：抓成功的域名永久 +0.05 排序加权。默认关闭——它按「抓到过」而非「有用」改写共识排序                                                                                                                                         |
 | `DHOLE_BROWSER_IDLE_TIMEOUT`                                         | 浏览器空闲关闭秒数（默认 300，`0` 永不关闭）                                                                                                                                                                                                       |
 | `DHOLE_NO_BROWSER_PREWARM`                                           | 设 `1` 后启动不预热隐身浏览器（默认预热，为首次 stealthy 抓取省 3-5 秒冷启动）                                                                                                                                                                     |
-| `DHOLE_SSRF_DNS_RECHECK`                                             | DNS 解析内网复查，**默认开启**；设 `0` 关闭（详见「边界与前提」）                                                                                                                                                                                  |
+| `DHOLE_TOOLS`                                                        | 只注册列出的工具（逗号分隔，默认全部 8 个），连接期 token 随之减（`smart_fetch,smart_search` ≈ −49%）；拼错的名字启动期直接报错并列出合法名                                                                                                        |
+| `DHOLE_DEFAULT_CONTENT_CHARS`                                        | 没传 `max_content_chars` 时的默认正文预算（默认 40000，区间 500–200000，无法解析回落默认）；截断走 `offset` / `next_offset` 续取，上限不变                                                                                                         |
+| `DHOLE_SSRF_DNS_RECHECK`                                             | DNS 解析内网复查，**默认开启**；设 `0` 关闭。**fake-IP TUN 代理（Clash / sing-box 等）必须关**，否则所有公网站点都会被判成内网（详见「边界与前提」）                                                                                                |
 | `DHOLE_HOME`                                                         | 状态目录位置（默认 `~/.dhole`）。这里装着**抓到的正文明文**与搜索词，共享机器上可指到别处。POSIX 下建为 0700 / 文件 0600                                                                                                                           |
 | `DHOLE_WORKDIR`                                                      | `parse` 解析相对路径时额外尝试的目录（排在 `cwd` 参数之后）。MCP 宿主常把安装目录当 cwd，此时靠它指向项目目录                                                                                                                                      |
 | `DHOLE_HF_ENDPOINT`（或 `HF_ENDPOINT`）                              | 重排模型下载源。默认先试 `huggingface.co`、失败回退 `hf-mirror.com`；设了就只用这一个                                                                                                                                                              |
@@ -167,14 +169,17 @@ dhole model use ms-marco     # 切换
 
 ## 边界与前提
 
-- **搜索能力的来源**：免密引擎是**对公开搜索结果的直接抓取**——没有授权、没有配额、没有 SLA。所以「免费」的确切含义是「用不受许可的读取替代付费授权」，代价由可用性承担：对方改版、封 IP 或收紧反爬时只表现为**静默降级**（熔断/冷却/退回共识排序），不会报错。需要可靠性请用 `DHOLE_SEARCH_PROXY` 或 keyed 后端。
-- **合规边界**：抓取与爬取**不检查 `s.txt` 的 Disallow**（只在 sitemap 发现时读它的 `Sitemap:` 指令）；UA 与 TLS 指纹是伪装的，被拦截时会升级到隐身浏览器求解 Cloudflare 验证。目标站点的 ToS 与当地法律由使用者自负。
-- **SSRF 防护**（前提：本工具跑在自己的机器上、单用户使用；共享机器请自行收紧）：
-  - **HTTP 层**：入口 URL 与**每一跳重定向**都过 `validate_url` —— scheme 白名单、各种 IP 变体记法、IPv4-mapped IPv6、云元数据主机名、DNS rebinding 服务名，以及默认开启的「域名解析到内网即拒」。hosts 里钉到 `127.0.0.1` 这类本机开发覆盖按**钉到的值**放行，钉到 `0.0.0.0` 这种屏蔽占位则拒绝。
-  - **浏览器层**：请求前拦截（页面 JS 发起的 fetch/XHR、iframe、JS 跳转都先判定是否解析到内网）；落地后若是内网则抛 `ssrf_blocked` 且**不返回任何正文**。入口站点豁免（已过校验），异端口不豁免。
-  - **残余**：校验用一次 DNS、连接时再解析一次，存在 TOCTOU 窗口（纵深防御，不是边界）；HTTP 3xx 重定向的目标仍会发出一次请求（内容不回流，但"打一下"还在）；浏览器层为通过真实站点的残缺证书链设了 `ignore_https_errors`，代价是同网络位置的中间人可给这一层伪造内容（HTTP 层不做此让步）。
-- **提示注入**：抓回来的正文是**不可信数据**，指令里已要求模型不要执行页面里的"指令"，但那是提示、不是强制；页面里出现工具调用、密钥、上传指令时都应按提示注入处理。同理 `is_official` 只对 gov / edu / github 这类第三方注册不走的命名空间为真，`docs.*` 子域不构成权威。
-- **上下文开销**：MCP 客户端每次连接要付一次固定 token（`instructions` + 8 个工具 schema），合计约 3.3k（cl100k_base），之后不再重复。
+- **搜索没有 SLA**：免密引擎是对公开搜索结果的直接抓取（无授权、无配额），对方改版、封 IP、收紧反爬时只会**静默降级**（熔断 / 冷却 / 退回共识排序），不报错。要可靠性用 `DHOLE_SEARCH_PROXY` 或 keyed 后端。
+- **合规自负**：不检查 `robots.txt` 的 Disallow（只读 sitemap 里的 `Sitemap:` 指令）；UA / TLS 指纹伪装、Cloudflare 验证求解是默认行为。目标站点 ToS 与当地法律由使用者承担。
+- **SSRF 防护**（前提：自己的机器、单用户）：入口 URL 与每一跳重定向都过 `validate_url`（IP 变体、云元数据、DNS rebinding、域名解析到内网即拒）；浏览器层拦截 JS 发起的请求，落地内网返回 `ssrf_blocked` 且不带正文，只豁免已过校验的入口站点（同主机异端口不豁免）；hosts 钉 `127.0.0.1` 放行、钉 `0.0.0.0` 拒绝。
+- **fake-IP TUN 会全线误报**：Clash / sing-box 的 fake-IP 把公网域名解析到保留段（`198.18.0.0/15`、`fc00::/7`），于是每个公网站点都被判成内网（报错会点名解析到的地址）。确认是这种环境设 `DHOLE_SSRF_DNS_RECHECK=0`；这是**全量开关**，不是域名白名单。
+- **残余风险**：DNS 校验与连接之间有 TOCTOU 窗口；3xx 目标仍会被请求一次（内容不回流）；浏览器层设了 `ignore_https_errors`，同网络位置的中间人可伪造这一层的内容（HTTP 层无此让步）。
+- **archive.org 第三层**（`smart_fetch` 专属）：升级链是 `http → stealthy → archive.org`，第三层只在硬阻断（404/410/451、网络失败、5xx、bot challenge）时触发，慢 10–30 秒且返回**某个日期的快照**（`metadata.source` / `metadata.archived_at`），**没有参数能关**。时效敏感的内容引用前先看 `source`。
+- **`content_ok=true` ≠ 内容可用**：判定只是 `2xx/3xx + 无 error + 正文非空`。占位页有软检测（词表 + 长度门限）但仍是打地鼠，存档内容见上条。几百字符的「成功」大概率是壳，引用前先看一眼字符量。
+- **字符集探测**：本地文件按 **BOM → `encoding=` → UTF-8 → GB18030** 严格试解，生效值见 `metadata.encoding`；带损伤（U+FFFD / 错码 / PUA）不算成功——正文照返，报 `encoding_undecodable` 并指 `encoding=` 重试。**缺口**：Shift_JIS / EUC-KR 会被解成「看似合理且零损伤的中文」，只能显式传 `encoding=shift_jis` / `euc-kr`；Latin-1 传 `encoding=cp1252`。
+- **提示注入**：抓回的正文是不可信数据，指令层已要求模型不执行页面里的「指令」（提示，非强制）；页面出现工具调用、密钥、上传指令时按提示注入处理。`is_official` 只对 gov / edu / github 为真，`docs.*` 子域不构成权威。
+- **上下文开销**：连接期固定成本 ≈12.6k 字符（≈3.3k token，每次连接付一次），`DHOLE_TOOLS` 只注册常用工具可省约一半。单次调用的正文才是大头（`smart_fetch` 默认 40k 字符、`smart_crawl` 硬顶 1M），杠杆在 `max_content_chars` / `max_total_chars` / `focus=` 和配置表的 `DHOLE_DEFAULT_CONTENT_CHARS`。**未改的缺口**：`smart_fetch(urls=[...])` 限 100 个 URL 但不限输出总量（满额外推 ≈1M token 单次调用），止损靠自己传 `max_content_chars`。
+- **响应信封固定**：30 个字段空值也照发（实测一次普通抓取 3,869 字符里 667 是信封，过半当场无信息），且 `content` 与 `structuredContent` 双发——客户端两种偏好都真实存在，砍掉哪份都会打断一批。
 
 **本机会留下什么**（全在 `~/.dhole/`，可用 `DHOLE_HOME` 换位置；POSIX 下目录 0700、文件 0600，Windows 上靠换位置 + NTFS ACL）：
 
@@ -196,6 +201,8 @@ dhole model use ms-marco     # 切换
 - 引擎可达性：`baidu` / `bing` / `yandex` 国内直连；`brave` / `duckduckgo` / `yahoo` 与 opt-in 的 `bing_global` / `mwmbl` 需要 VPN 或代理；`so360` / `sogou` 是国内直连的 opt-in
 - 引擎被限速时自动熔断冷却（60 秒），重度使用建议配置代理
 - PDF 口令：用 `password=` 选项；没给或给错时会**明确说是口令问题**，不混进「文件打不开」
+- 单次 `smart_crawl` 存在 **1,000,000 字符总预算硬顶**（`max_total_chars` 被钳在这个值）：不显式给 `max_total_chars` 时按 `max_pages × max_content_chars_per` 推导（默认 80,000）；**显式给了之后调 `max_pages` 不再影响预算**。要更多内容得抬 `max_total_chars`（≈25 万 token 一个响应，先想想值不值），或用 `crawl_urls=[...]` 分阶段取
+- `smart_crawl` 的 `path_include`/`path_exclude` 按**路径子树**匹配，不是字符串前缀：`'/docs'`（`'docs'`、`'/docs/'`、`'/docs/*'` 等价）命中 `/docs` 及其下全部，但**不**命中 `/docs-old`、`/docsomething`；`'/'` 或 `'*'` 表示全部。**只接受尾部 `/*` 这一种通配写法**，其余（如 `'/api/*/v1'`）会直接报错 —— 早期版本用 `startswith` 匹配，上面四种写法里两种会**静默**过滤掉整个爬取、一种会多抓兄弟目录、一种完全不生效，都是「看起来成功」的失败
 - YouTube 仅能获取少量文本
 - 引擎存活不做主动巡检，但每轮真实搜索都会记下解析产出（`dhole -v` 的 `engine yield` 行能区分「被墙」与「答了但解析不出来」）；opt-in 引擎里垂直索引（`sogou_weixin`）在无重排器时排在通用引擎之后，也不能独自填满早退配额
 

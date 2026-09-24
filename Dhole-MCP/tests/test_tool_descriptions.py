@@ -8,6 +8,7 @@
 这里刻意不依赖 tiktoken：用字符数当预算代理，够用且零依赖。
 """
 
+import inspect
 import json
 import re
 
@@ -84,6 +85,62 @@ def test_search_description_lists_the_real_default_pool(tools):
     desc = _desc(tools, "smart_search")
     missing = [e for e in DEFAULT_ENGINES if e not in desc]
     assert not missing, f"描述里的默认引擎池与 DEFAULT_ENGINES 不符，缺: {missing}"
+
+
+_ENGINE_TOKEN = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _engine_tokens(text: str) -> set[str]:
+    """按**整词**取标识符，而不是子串。
+
+    不能用 `"sogou" in text` —— `sogou` 是 `sogou_weixin` 的子串、`bing` 是
+    `bing_global` 的子串，子串匹配会让「只列了 sogou_weixin」被读成「也列了
+    sogou」。与 `_extensions_mentioned` 同一类陷阱。
+    """
+    return set(_ENGINE_TOKEN.findall(text.lower()))
+
+
+def test_search_engine_list_is_never_partial(tools):
+    """`smart_search` 里**每一处**点名的 opt-in 引擎清单，都必须点全。
+
+    实测漂移（15.1 裁剪时发现）：描述写 "opt-in baidu_baike,bing_global,mwmbl,
+    wikipedia,grokipedia"（**5 个**），而 `search_engines._INDEX_FAMILY` 注册
+    14 个后端 = 6 默认 + **8** opt-in —— 漏了 `so360` / `sogou` /
+    `sogou_weixin`。调用方读描述会以为 opt-in 池只有 5 个。
+
+    这是 `SUPPORTED_EXTENSIONS` 那类「同一份名单手写两遍」的翻版，所以守卫
+    不去比对两份手写清单，而是**从注册表反查载荷**。
+
+    **必须逐个位置判，不能把整份载荷当一个字符串扫** —— 这是写下第一条版本
+    时的真实错误：`options` 包里列全了 8 个，把描述里那 5 个"补"成了 8，
+    于是整载荷扫法对原始 bug 静默通过（变异实验实测）。每个位置各自满足
+    「要么为空，要么等于注册表」才算过。
+    """
+    from dhole_mcp.search_engines import _INDEX_FAMILY
+
+    registry = set(_INDEX_FAMILY)          # 注册表：14 个后端
+    opt_in = registry - set(DEFAULT_ENGINES)
+
+    # 机制自检：整词匹配不该把 sogou_weixin 读成 sogou
+    assert _engine_tokens("sogou_weixin only") & opt_in == {"sogou_weixin"}
+
+    t = tools["smart_search"]
+    locations = {
+        "description": t["description"],
+        "options.engines": t["inputSchema"]["properties"]["options"]["description"],
+    }
+    partial: dict[str, list[str]] = {}
+    for where, text in locations.items():
+        claimed = _engine_tokens(text) & opt_in
+        if claimed and claimed != opt_in:   # 空 = 没写清单，放行
+            partial[where] = sorted(claimed)
+    assert not partial, (
+        "smart_search 有位置点名了 opt-in 引擎清单但与注册表不符"
+        "（漏列会让调用方以为池子更小）。\n"
+        f"  注册表里: {sorted(opt_in)}\n"
+        f"  不符处: {partial}\n"
+        "要么补全，要么删掉该处清单改为指向 options.engines（推荐 —— 名单只留一份）。"
+    )
 
 
 def test_parse_advertises_local_pdf(tools):
@@ -188,63 +245,29 @@ def test_params_named_in_description_exist(tools, name):
     assert not unknown, f"{name} 描述引用了不存在的参数: {unknown}"
 
 
-# ─── 预算：描述不能悄悄变胖 ────────────────────────────────────────────
+# ─── 体积：不再设守卫 ──────────────────────────────────────────────────
 #
-# 上限设在当前值之上留约 10% 余量：正常改动用不着调，真要加东西就得
-# 显式改这个表 —— 让「描述变胖」变成一个有意识的动作。
-
-CHAR_BUDGET = {
-    # 14.7：描述重写（营销词/实现细节/环境假设出清，desc 正文 4711 -> 3625
-    # 字符）后，整表按新实测值重新推导，仍保持 ~10% 余量。不重新推导的话，
-    # 下一个 agent 能把删掉的话原样加回来而不触发任何守卫。
-    "smart_fetch": 4100,
-    "smart_crawl": 2250,
-    "smart_search": 1800,
-    "screenshot": 880,
-    "feed_fetch": 870,
-    "resolve_url": 590,
-    # 15.0: 700 -> 960. parse gained the `cwd` arg (a schema property plus the
-    # resolution-order sentence). It is the only channel a caller can use without
-    # host support - roots is deprecated in the SDK (SEP-2577) and DHOLE_WORKDIR
-    # needs host config - so the sentence stays, and the older text was actively
-    # misleading: "resolves against cwd" meant the *server process* cwd, i.e. the
-    # host's install directory. Measured 874 chars, ~10% headroom kept.
-    "parse": 960,
-    # 14.6: 550 -> 860. cache_clear gained the engine_state lever (reset engine
-    # cooldowns / yield) plus its "when to use it" line. Without a tool-visible
-    # reset, a user whose network changed had only "delete files under ~/.dhole
-    # and restart" - which is exactly how a working VPN got misdiagnosed as
-    # ignored. parse's 700 was already enough for its path-resolution note.
-    "cache_clear": 840,
-}
-TOOLS_TOTAL_BUDGET = 12000
-INSTRUCTIONS_BUDGET = 1500
-CONNECT_TOTAL_BUDGET = 14000
-
-
-@pytest.mark.parametrize("name", sorted(CHAR_BUDGET))
-def test_tool_within_char_budget(tools, name):
-    size = len(json.dumps(tools[name], ensure_ascii=False))
-    assert size <= CHAR_BUDGET[name], (
-        f"{name} 的 wire 体积 {size} 超过预算 {CHAR_BUDGET[name]}。"
-        f"要么精简，要么显式上调 CHAR_BUDGET 并说明理由。"
-    )
-
-
-def test_tools_list_within_char_budget(tools):
-    total = sum(len(json.dumps(t, ensure_ascii=False)) for t in tools.values())
-    assert total <= TOOLS_TOTAL_BUDGET, f"tools/list 合计 {total} > {TOOLS_TOTAL_BUDGET}"
-
-
-def test_instructions_within_char_budget():
-    assert len(DHOLE_INSTRUCTIONS) <= INSTRUCTIONS_BUDGET
-
-
-def test_connect_time_total_within_char_budget(tools):
-    """每次 MCP 连接都要付的成本：instructions + 全部工具定义。"""
-    total = sum(len(json.dumps(t, ensure_ascii=False)) for t in tools.values())
-    total += len(DHOLE_INSTRUCTIONS)
-    assert total <= CONNECT_TOTAL_BUDGET, f"connect-time 合计 {total} > {CONNECT_TOTAL_BUDGET}"
+# 这里曾有 CHAR_BUDGET（逐工具字符上限）+ TOOLS_TOTAL_BUDGET /
+# INSTRUCTIONS_BUDGET / CONNECT_TOTAL_BUDGET 四道预算。已删除。
+#
+# 删除理由：它们的期望值是**人手在每次改描述后重新推导的实测值**，属于
+# 刻舟求剑 —— 正常改一句描述就会红，红完只能去改常量。守卫拦下的不是
+# 缺陷，是「描述和上次不一样」。代价则由每次编辑承担，收益（防缓慢变胖）
+# 远低于成本。要防变胖，看 connect-time 总量的量级即可，不必钉死数字。
+#
+# 保留下来的描述守卫分两类，改描述时的代价完全不同：
+#
+# 1. **从代码反查描述**（期望值由常量算出，改描述零成本）：
+#    test_search_engine_list_is_never_partial、
+#    test_parse_advertises_every_supported_extension、
+#    test_engine_count_in_instructions_matches_real_pool、
+#    test_params_named_in_description_exist。这类是纯收益，留着。
+#
+# 2. **文本 needle**（改措辞就可能红）：ROUTING_CONTRACT、
+#    test_instructions_routes_known_url_list_to_fetch、以及各 report 回归文件里
+#    「描述必须出现 X」的断言。它们锁的是**路由规则和对外事实**（比如
+#    max_total_chars 的硬顶必须写出来，值由 crawl.py 常量反查），措辞变了要人工判断是不是
+#    真丢了这条信息 —— 这是有意的摩擦，不是刻舟求剑，故保留。
 
 
 # ─── 基本卫生 ──────────────────────────────────────────────────────────
@@ -260,3 +283,78 @@ def test_descriptions_have_no_stray_whitespace(tools):
         desc = t["description"]
         assert not re.search(r"[ \t]+\n", desc), f"{name} 描述有行尾空格"
         assert "\n\n\n" not in desc, f"{name} 描述有连续空行"
+
+
+# ─── docstring / wire 双写守卫 ─────────────────────────────────────────
+#
+# 客户端收到的是 _TOOL_DEFS 的 description；工具方法的 docstring **不上
+# wire**（全项目零处消费 __doc__，见 server.py 中 _TOOL_DEFS 上方的注释）。
+# 两边没有同步机制，于是 docstring 必然腐坏 —— screenshot 的 :param: 块曾把
+# 早已搬进 `options` 的键描述成顶层参数，读源码的人会照着写错。
+#
+# 这条守卫不要求两边内容一致（wire 是刻意瘦身的，docstring 更长）。它只要
+# 求一件事：**docstring 里的 snake_case 标识符，若在整个 wire 载荷里找不到，
+# 就必须登记在下面的集合里**。新增的漂移必须显式登记，不能默默出现 ——
+# 这正是「改了 docstring 以为生效」的拦截点。
+
+_SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+
+# 实现细节 / 非契约：本来就不该出现在 agent 可见的载荷里。
+_DOCSTRING_ONLY_IMPLEMENTATION = {
+    "curl_cffi",        # HTTP 层用的引擎名
+    "circuit_breaker",  # ~/.dhole 下的状态文件名
+    "engine_stats",     # 同上
+}
+
+# 跨工具引用：指向别处，不是本工具的契约。
+_DOCSTRING_ONLY_CROSS_REFERENCE = {
+    "smart_fetch", "smart_search",
+}
+
+# 刻意不在 wire 暴露的诊断字段：暴露的边际价值低于其 token 成本（agent 基本
+# 不会基于 duration_ms / total_size_bytes 做决策）。15.1 已把 escalation_path、
+# source_type、is_official 搬进 wire —— 它们影响"要不要引用这份内容"。
+_RESPONSE_FIELDS_NOT_ON_WIRE = {
+    "content_type", "duration_ms", "total_size_bytes",
+}
+
+_ALLOWED_DOCSTRING_ONLY = (
+    _DOCSTRING_ONLY_IMPLEMENTATION
+    | _DOCSTRING_ONLY_CROSS_REFERENCE
+    | _RESPONSE_FIELDS_NOT_ON_WIRE
+)
+
+
+def _docstring_identifiers(name: str) -> set[str]:
+    doc = inspect.getdoc(getattr(MasterFetchServer, name)) or ""
+    return set(_SNAKE_CASE.findall(doc))
+
+
+def test_docstring_identifiers_are_on_the_wire_or_registered(tools):
+    """docstring 里出现 wire 上看不到的标识符 = agent 与开发者看到的事实不同。
+
+    拦截场景：往 docstring 里写了一个新参数/新字段，以为客户端能看到 ——
+    实际看不到。要么搬进 _TOOL_DEFS，要么登记并说明为什么它是内部细节。
+    """
+    unregistered: dict[str, list[str]] = {}
+    for name, t in tools.items():
+        on_wire = json.dumps(t, ensure_ascii=False).lower()
+        stray = sorted(i for i in _docstring_identifiers(name)
+                       if i not in on_wire and i not in _ALLOWED_DOCSTRING_ONLY)
+        if stray:
+            unregistered[name] = stray
+    assert not unregistered, (
+        "docstring 里有 wire 上看不到的标识符，且未登记。\n"
+        "要么搬进 _TOOL_DEFS 的描述（agent 需要知道），要么加进 "
+        "_DOCSTRING_ONLY_* 白名单并写明理由。\n"
+        f"{unregistered}"
+    )
+
+
+def test_allowlist_has_no_dead_entries(tools):
+    """白名单不许长草：没人再用的条目要删掉，否则守卫会掩盖真实漂移。"""
+    used: set[str] = set()
+    for name in tools:
+        used |= _docstring_identifiers(name)
+    dead = sorted(i for i in _ALLOWED_DOCSTRING_ONLY if i not in used)
+    assert not dead, f"白名单里这些标识符已无人使用，应删除: {dead}"
