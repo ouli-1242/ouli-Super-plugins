@@ -1,8 +1,8 @@
-# Global CLAUDE Configuration
+# Global Agent Rules
 
 ## Environment
 
-- Windows 11 Pro; Claude Code defaults to Bash (Git Bash) — use Bash syntax unless the project requires otherwise. PowerShell tool available opt-in.
+- Windows 11 Pro; shells: PowerShell 7 (pwsh) and Bash; prefer pwsh unless the project or toolchain requires Bash.
 
 ## Principles
 
