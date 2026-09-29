@@ -8,6 +8,7 @@ import re
 from collections import deque
 from pathlib import Path
 
+from fastgraph.config import is_test_path, path_rank
 from fastgraph.db import DB
 from fastgraph.parsers.registry import language_for_path
 
@@ -50,6 +51,22 @@ def name_path(qname: str) -> str:
     return (qname or "").replace(".", "/")
 
 
+def _member_separator_variants(name: str) -> list[str]:
+    """``Class.method`` <-> ``Class::method``.
+
+    Rust and C++ store ``::`` in qualified names, every other language stores
+    ``.``, and the tool description advertises the dot form -- so
+    ``GlobSet.matches`` came back not_found on ripgrep while ``GlobSet::matches``
+    hit. Callers paste whichever spelling the source uses, so both are tried.
+    """
+    out: list[str] = []
+    if "::" in name:
+        out.append(name.replace("::", "."))
+    if "." in name:
+        out.append(name.replace(".", "::"))
+    return out
+
+
 def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
     """Locate symbols by plain name or dotted qualified name.
 
@@ -60,8 +77,14 @@ def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
 
     Also accepts slash name paths (``Class/method``, ``/Class/method``,
     ``Class/method[1]``) via :func:`normalize_symbol_query`.
+
+    Several files may declare the same name, so the candidate window is wider
+    than ``limit`` and the results are ranked by :func:`path_rank`: without it
+    the order is index order, which put a bundled legacy build and a test stub
+    ahead of the real ``diff`` / ``AssertionResult``.
     """
     name = normalize_symbol_query(name)
+    window = max(limit * 8, 200)
     q = (
         "SELECT s.id, s.name, s.kind, s.qualified_name, s.signature, s.start_line, "
         "f.path"
@@ -69,7 +92,15 @@ def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
         " WHERE s.name = ? OR s.qualified_name = ?"
         " ORDER BY s.file_id LIMIT ?"
     )
-    rows = db.conn.execute(q, (name, name, limit)).fetchall()
+    rows = db.conn.execute(q, (name, name, window)).fetchall()
+    if not rows:
+        # the dot/`::` retry only when the pasted spelling found nothing: trying
+        # both first would let a Python `mod.cls` query hit an unrelated Rust one
+        for alt in _member_separator_variants(name):
+            alt_rows = db.conn.execute(q, (alt, alt, window)).fetchall()
+            if alt_rows:
+                rows, name = alt_rows, alt
+                break
     parts = name.split(".")
     if len(parts) >= 3:
         qual = ".".join(parts[1:])
@@ -107,6 +138,22 @@ def find_symbols(db: DB, name: str, limit: int = 20) -> list[dict]:
             ).fetchall()
             rows.extend(r for r in extra if r[0] not in seen)
             seen.update(r[0] for r in extra)
+    if not rows and ("." in name or "::" in name):
+        # `impl Controller<'_> { fn print_file() }` stores the receiver *with*
+        # its generic list, so `Controller::print_file` -- exactly what a caller
+        # pastes back from code_search -- matched nothing.
+        want = _drop_generics(name).replace("::", ".").strip(".")
+        for r in db.conn.execute(
+            "SELECT s.id, s.name, s.kind, s.qualified_name, s.signature, s.start_line, "
+            "f.path FROM symbols s JOIN files f ON f.id = s.file_id"
+            " WHERE s.name = ? ORDER BY s.file_id LIMIT ?",
+            (want.rsplit(".", 1)[-1], window),
+        ):
+            if _drop_generics(r[3] or "").replace("::", ".").strip(".") == want:
+                rows.append(r)
+    # rank first, then a stable identity: the 3-segment branch appends per
+    # candidate file from a set, whose iteration order is not deterministic
+    rows.sort(key=lambda r: (path_rank(r[6]), r[6], r[5]))
     return [symbol_row(r) for r in rows[:limit]]
 
 
@@ -155,13 +202,73 @@ def callee_ids(db: DB, sid: int) -> list[int]:
     return [r[0] for r in rows]
 
 
+_GENERIC_RE = re.compile(r"<[^<>]*>")
+
+
+def _drop_generics(text: str) -> str:
+    """``HashMap<K, V>`` -> ````; nested ``A<B<C>>`` needs repeated passes."""
+    for _ in range(4):
+        stripped = _GENERIC_RE.sub("", text)
+        if stripped == text:
+            break
+        text = stripped
+    return text
+
+
+def _call_leaf(target: str) -> str:
+    """The called name with its receiver spelling and generics removed."""
+    return _drop_generics(target).replace("::", ".").rsplit(".", 1)[-1]
+
+
 def callee_names_with_lines(db: DB, sid: int) -> list[dict]:
     rows = db.conn.execute(
         """SELECT r.target, r.rtype, r.line FROM relations r
            WHERE r.source_id = ? ORDER BY r.line""",
         (sid,),
     ).fetchall()
-    return [{"target": r[0], "rtype": r[1], "line": r[2]} for r in rows]
+    # One written call is stored once per spelling the parser saw:
+    # `user.verify_password()` produced both `verify_password` and
+    # `user.verify_password`, so the list read as two calls at twice the size.
+    # Collapse per (line, called name) and keep the bare name: that is the
+    # callee's identity here (a chained `db.query().filter()` reports the link
+    # as `query`, not as its receiver-qualified form).
+    out: list[dict] = []
+    placed: dict[tuple[int, str], int] = {}
+    for target, rtype, line in rows:
+        entry = {"target": target, "rtype": rtype, "line": line}
+        if rtype != "calls":
+            out.append(entry)
+            continue
+        key = (line, _call_leaf(target))
+        at = placed.get(key)
+        if at is None:
+            placed[key] = len(out)
+            out.append(entry)
+        elif len(target) < len(out[at]["target"]):
+            out[at] = entry
+    return out
+
+
+def imported_by(db: DB, paths: list[str], limit: int = 20) -> list[str]:
+    """Files holding a resolved import edge into one of ``paths``.
+
+    The dependency signal that survives name-based resolution: an
+    enum/const/type is read rather than called, so it has no call edges at all
+    and the call graph alone cannot tell it apart from dead code.
+    """
+    paths = sorted({p for p in paths if p})
+    if not paths:
+        return []
+    marks = ",".join("?" * len(paths))
+    return [
+        r[0]
+        for r in db.conn.execute(
+            f"""SELECT DISTINCT f.path FROM import_edges e
+                  JOIN files f ON f.id = e.file_id
+                 WHERE e.target IN ({marks}) ORDER BY f.path LIMIT ?""",
+            (*paths, limit),
+        )
+    ]
 
 
 def find_callers(db: DB, name: str, limit: int = 30, depth: int = 1) -> list[dict]:
@@ -498,8 +605,9 @@ def impact_analysis(db: DB, name: str, max_depth: int = 3, limit: int = 50) -> d
             break
 
     def is_test(info: dict) -> bool:
-        p = info.get("path", "").lower()
-        return "test" in p or "spec" in p or "tests" in p
+        # was a raw substring check on the whole path, which also flagged source
+        # files whose name merely *contains* "test" (`latest_news.js`)
+        return is_test_path(info.get("path", ""))
 
     tests = [i for b in buckets.values() for i in b if is_test(i)]
     for k in buckets:
@@ -513,18 +621,7 @@ def impact_analysis(db: DB, name: str, max_depth: int = 3, limit: int = 50) -> d
     # when no call edge crosses the boundary, so they must not silently
     # vanish from the report.
     root_paths = sorted({r.get("path") or "" for r in roots} - {""})
-    import_dependents: list[str] = []
-    if root_paths:
-        marks = ",".join("?" * len(root_paths))
-        import_dependents = [
-            r[0]
-            for r in db.conn.execute(
-                f"""SELECT DISTINCT f.path FROM import_edges e
-                      JOIN files f ON f.id = e.file_id
-                     WHERE e.target IN ({marks}) ORDER BY f.path LIMIT ?""",
-                (*root_paths, limit),
-            )
-        ]
+    import_dependents = imported_by(db, root_paths, limit)
 
     return {
         "symbol": name,
@@ -667,8 +764,11 @@ def file_symbols(db: DB, path: str, limit: int = 200) -> tuple[list[dict], bool]
     ).fetchall()
     truncated = len(rows) > limit
     return [
-        {"id": r[0], "symbol": r[1], "kind": r[2], "qualified_name": r[3],
-         "signature": (r[4] or "")[:120], "lines": f"{r[5]}-{r[6]}", "file": r[7]}
+        # no `id` (an internal row handle no tool accepts as input, so it reads
+        # as usable) and no per-row `file` (the response already names the one
+        # file every row comes from)
+        {"symbol": r[1], "kind": r[2], "qualified_name": r[3],
+         "signature": (r[4] or "")[:120], "lines": f"{r[5]}-{r[6]}"}
         for r in rows[:limit]
     ], truncated
 
@@ -1445,6 +1545,13 @@ def project_overview(db: DB) -> dict:
         "entry_points": _entry_points(db),
         "layering": _layering(db),
         "parse_errors": [e["file"] for e in db.parse_errors(limit=50)],
+        # content search over these files is partial (see index.MAX_STRING_CONTENT_LINES)
+        "content_capped": [
+            r[0]
+            for r in db.conn.execute(
+                "SELECT path FROM files WHERE content_capped = 1 ORDER BY path LIMIT 10"
+            )
+        ],
     }
 
 
@@ -1696,7 +1803,18 @@ def _entry_points(db: DB) -> list[str]:
     """Files conventionally treated as entry points (main/app/index/cli)."""
     out: list[str] = []
     for (p,) in db.conn.execute("SELECT path FROM files ORDER BY path"):
-        if Path(p).name in _ENTRY_NAMES and not p.startswith("test") and "test" not in p.lower():
+        if Path(p).name in _ENTRY_NAMES and path_rank(p) < 3:
+            out.append(p)
+    # A `main` *method* (Java / C# declare it inside the application class) is
+    # an entry point whatever the file is called: spring-petclinic's
+    # PetClinicApplication.java matched no name convention, so the repo reported
+    # no entry point at all. Go / Rust / C / Python `main` is a function in a
+    # main.* file, already covered above.
+    for (p,) in db.conn.execute(
+        """SELECT DISTINCT f.path FROM symbols s JOIN files f ON f.id = s.file_id
+           WHERE s.name = 'main' AND s.kind = 'method' ORDER BY f.path LIMIT 10"""
+    ):
+        if path_rank(p) < 3 and p not in out:
             out.append(p)
     return out[:10]
 

@@ -14,6 +14,17 @@ def node_text(node, source: bytes, limit: int = 300) -> str:
         return ""
 
 
+def sig_params(params, source: bytes, cap: int = 200) -> str:
+    """A parameter/receiver list *with* its own parentheses.
+
+    tree-sitter's ``parameters`` node spans the parens themselves, so wrapping
+    its text in another pair produced ``fn f((a, b))`` -- and ``(())`` for an
+    empty list -- in every Go / Java / Rust / JS / TS signature.
+    """
+    text = node_text(params, source, cap).strip()
+    return text if text.startswith("(") else f"({text})"
+
+
 # Names that wrap a real type instead of being one: taking the first
 # identifier of `Optional[UserService]` / `Array<UserService>` would record
 # the wrapper, not the receiver's type.

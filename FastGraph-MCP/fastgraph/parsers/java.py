@@ -7,7 +7,7 @@ from tree_sitter import Language, Parser
 
 from fastgraph.parsers.base import CallRef, ImportRef, ParseResult, SymbolInfo
 from fastgraph.parsers.registry import register_adapter
-from fastgraph.parsers.util import node_text
+from fastgraph.parsers.util import node_text, sig_params
 
 
 def _java_calls(node, source: bytes) -> list[CallRef]:
@@ -120,7 +120,7 @@ class JavaAdapter:
                 sym = SymbolInfo(
                     name=name, kind="method" if t == "method_declaration" else "constructor",
                     qualified_name=parent + "." + name if parent else name,
-                    signature=f"{name}({node_text(params, source, 200) if params else ''})",
+                    signature=f"{name}{sig_params(params, source)}",
                     doc="", start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
                     parent=parent, calls=_java_calls(node, source),

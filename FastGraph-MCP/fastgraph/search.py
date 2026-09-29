@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from fastgraph.config import path_rank
 from fastgraph.db import DB
 
 _TOKEN_MAX = 128  # a token longer than this is a pasted blob, not a search term
@@ -74,8 +75,13 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
     if kind:
         sql += " AND s.kind = ?"
         params.append(kind)
+    # fetch a window wider than `limit` and rank it below: cutting straight to
+    # `limit` in SQL kept the first N index-order rows, so in a repo whose test
+    # files index first the real definition never entered the result set.
     sql += " LIMIT ?"
-    rows = db.conn.execute(sql, params + [limit]).fetchall()
+    win = max(limit * 6, 60)
+    rows = db.conn.execute(sql, params + [win]).fetchall()
+    rows.sort(key=lambda r: (path_rank(r[6]), r[6], r[5]))
 
     # 2) FTS doc/signature search. fts_symbols is a regular (not contentless)
     #    FTS5 table whose key column is `rowid` — kept equal to symbols.id so a
@@ -107,6 +113,7 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
             fts_sql += " AND s.kind = ?"
             fts_params = fts_ids + [kind]
         fts_rows = db.conn.execute(fts_sql, fts_params).fetchall()
+        fts_rows.sort(key=lambda r: (path_rank(r[6]), r[6], r[5]))
     else:
         fts_rows = []
 
@@ -142,18 +149,22 @@ def _content_hits(db: DB, query: str, limit: int) -> list[dict]:
     if not tokens:
         return []
     like = " AND ".join("lc.text LIKE ?" for _ in tokens)
+    # over-fetch and re-rank: ORDER BY f.path puts `benchmarks/` and `tests/`
+    # before `src/` alphabetically, so a prose hit in a test fixture used to
+    # crowd the source hit out of the window
     rows = db.conn.execute(
         f"""SELECT lc.line, lc.kind, lc.text, f.path
             FROM line_content lc JOIN files f ON f.id = lc.file_id
             WHERE {like} ORDER BY f.path, lc.line LIMIT ?""",
-        [f"%{t}%" for t in tokens] + [limit],
+        [f"%{t}%" for t in tokens] + [max(limit * 8, 80)],
     ).fetchall()
+    rows.sort(key=lambda r: (path_rank(r[3]), r[3], r[0]))
     return [
         {
             "symbol": "", "kind": r[1], "qualified_name": "", "signature": "",
             "line": r[0], "file": r[3], "match": "content", "snippet": r[2][:80],
         }
-        for r in rows
+        for r in rows[:limit]
     ]
 
 
@@ -200,3 +211,7 @@ def _make_hit(r: tuple, match: str = "name") -> dict:
         "file": r[6],
         "match": match,
     }
+    if r[3] and r[3] != r[1]:
+        # only carried when it says more than `symbol` already did
+        hit["qualified_name"] = r[3]
+    return hit

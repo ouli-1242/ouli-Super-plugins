@@ -2,8 +2,51 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
+
+
+# `+++ b/<path>` (post-image name) and `@@ -a,b +c,d @@` (hunk header)
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def changed_ranges(root: Path, base: str | None = None) -> dict[str, list[tuple[int, int]]]:
+    """path -> inclusive line ranges touched, in the post-image file.
+
+    ``git status`` answers only *which* file changed, so a one-line edit inside
+    one function reported every symbol of a 1,500-line file as touched. With
+    ``--unified=0`` the hunk header is exactly the changed range. Files with no
+    hunks (untracked, renamed, deleted) get no entry, so they keep whole-file
+    handling at the call site.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "-c", "core.quotepath=false", "diff",
+             "--unified=0", "--no-color", "--no-ext-diff", base or "HEAD", "--"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=20,
+        )
+    except Exception:
+        return {}
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    cur: str | None = None
+    for line in out.stdout.splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:].strip()
+            cur = path if path and path != "/dev/null" else None
+            continue
+        if cur is None or not line.startswith("@@"):
+            continue
+        m = _HUNK_RE.match(line)
+        if not m:
+            continue
+        start = int(m.group(1))
+        # a pure deletion has count 0 and no post-image lines: attribute it to
+        # the line it happened at so an enclosing symbol still counts as touched
+        count = int(m.group(2) or 1)
+        ranges.setdefault(cur, []).append((start, max(start, start + count - 1)))
+    return {k: v for k, v in ranges.items() if v}
 
 
 def git_root(root: Path) -> Path | None:
@@ -114,8 +157,18 @@ def changed_files_vs(root: Path, base: str) -> dict:
     return changes
 
 
-def changed_symbols(db, changes: dict[str, str]) -> dict[str, list[dict]]:
-    """Map status->symbols that live in changed files."""
+def changed_symbols(
+    db,
+    changes: dict[str, str],
+    ranges: dict[str, list[tuple[int, int]]] | None = None,
+) -> dict[str, list[dict]]:
+    """Map status->symbols that live in changed files.
+
+    When ``ranges`` (see :func:`changed_ranges`) covers a modified file, only
+    symbols whose line span intersects a hunk are reported: without it the
+    answer to "what did I touch" is "everything in this file".
+    """
+    ranges = ranges or {}
     out: dict[str, list[dict]] = {}
     for rel, status in changes.items():
         row = db.conn.execute("SELECT id FROM files WHERE path=?", (rel,)).fetchone()
@@ -124,12 +177,16 @@ def changed_symbols(db, changes: dict[str, str]) -> dict[str, list[dict]]:
         fid = row[0]
         syms = db.conn.execute(
             """SELECT s.id, s.name, s.kind, s.qualified_name, s.start_line,
+                      s.end_line,
                       (SELECT path FROM files WHERE id=?) AS path
                FROM symbols s WHERE s.file_id=?""",
             (fid, fid),
         ).fetchall()
+        hunks = ranges.get(rel) or []
+        if hunks and status == "modified":
+            syms = [r for r in syms if any(r[4] <= hi and r[5] >= lo for lo, hi in hunks)]
         out.setdefault(status, []).extend(
-            {"id": r[0], "name": r[1], "kind": r[2], "qualified_name": r[3], "start_line": r[4], "path": r[5]}
+            {"id": r[0], "name": r[1], "kind": r[2], "qualified_name": r[3], "start_line": r[4], "path": r[6]}
             for r in syms
         )
     return out

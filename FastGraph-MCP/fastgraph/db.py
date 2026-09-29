@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from fastgraph.config import ensure_ignore_template
+
+# DDL (SCHEMA + migrations) needs the write lock. A second project window opening
+# the same index, or WAL recovery after a killed process, can be holding it -- and
+# an OperationalError raised here escapes before the MCP handshake, so the client
+# can only report "Process Exited" with no reason. Waiting beats dying: the
+# steady-state query timeout stays short (a hung query should surface fast), only
+# the startup DDL waits.
+DDL_BUSY_TIMEOUT_MS = 20_000
+QUERY_BUSY_TIMEOUT_MS = 5_000
+DDL_RETRIES = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -15,7 +26,8 @@ CREATE TABLE IF NOT EXISTS files (
     language   TEXT NOT NULL,
     hash       TEXT NOT NULL DEFAULT '',
     mtime      REAL NOT NULL DEFAULT 0,
-    size       INTEGER NOT NULL DEFAULT 0
+    size       INTEGER NOT NULL DEFAULT 0,
+    content_capped INTEGER NOT NULL DEFAULT 0  -- literal corpus truncated
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
@@ -43,7 +55,8 @@ CREATE TABLE IF NOT EXISTS relations (
     target      TEXT NOT NULL,
     rtype       TEXT NOT NULL,          -- calls | inherits
     target_id   INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
-    line        INTEGER NOT NULL DEFAULT 0
+    line        INTEGER NOT NULL DEFAULT 0,
+    tried       INTEGER NOT NULL DEFAULT 0  -- the resolver already gave up on it
 );
 CREATE INDEX IF NOT EXISTS idx_rel_source ON relations(source_id);
 CREATE INDEX IF NOT EXISTS idx_rel_target ON relations(target_id);
@@ -113,8 +126,8 @@ def _stem_of(path: str) -> str:
 
 
 class DB:
-    def __init__(self, root: Path):
-        self.root = root.resolve()
+    def __init__(self, root: Path | str):
+        self.root = Path(root).resolve()
         self.index_dir = self.root / ".fastgraph"
         self.index_dir.mkdir(parents=True, exist_ok=True)
         ensure_ignore_template(self.index_dir)
@@ -129,11 +142,35 @@ class DB:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
-        self._migrate_schema()
-        conn.executescript(SCHEMA)
-        conn.commit()
-        self._heal_fts()
-        conn.commit()
+        self._init_storage(conn)
+
+    def _init_storage(self, conn: sqlite3.Connection) -> None:
+        """Create/upgrade the schema and heal FTS, waiting out a transient writer.
+
+        Every write the startup performs lives in here on purpose: migration,
+        SCHEMA and the FTS rebuild all need the write lock, and an
+        OperationalError from any of them escapes before the MCP handshake --
+        which a client reports only as "Process Exited", with nothing to act on.
+        So all three retry together, then the connection drops back to the short
+        query timeout (a hung *query* should still surface fast).
+        """
+        conn.execute(f"PRAGMA busy_timeout={DDL_BUSY_TIMEOUT_MS}")
+        try:
+            for attempt in range(DDL_RETRIES):
+                try:
+                    self._migrate_schema()
+                    conn.executescript(SCHEMA)
+                    conn.commit()
+                    self._heal_fts()
+                    conn.commit()
+                    return
+                except sqlite3.OperationalError as e:
+                    if "locked" not in str(e).lower() or attempt == DDL_RETRIES - 1:
+                        raise
+                    conn.rollback()
+                    time.sleep(0.5)
+        finally:
+            conn.execute(f"PRAGMA busy_timeout={QUERY_BUSY_TIMEOUT_MS}")
 
     def _new_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -142,9 +179,12 @@ class DB:
         # cross-process writers (a second MCP instance, or a script + the
         # server) wait up to 5s instead of failing instantly with
         # "database is locked" (default busy_timeout is 0)
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.executescript(SCHEMA)
-        conn.commit()
+        conn.execute(f"PRAGMA busy_timeout={DDL_BUSY_TIMEOUT_MS}")
+        try:
+            conn.executescript(SCHEMA)
+            conn.commit()
+        finally:
+            conn.execute(f"PRAGMA busy_timeout={QUERY_BUSY_TIMEOUT_MS}")
         return conn
 
     @property
@@ -210,6 +250,29 @@ class DB:
             self.conn.execute(
                 "ALTER TABLE symbols ADD COLUMN param_types TEXT NOT NULL DEFAULT ''"
             )
+        # relations.tried: the resolver's "already gave up" marker. Rows created
+        # by an older build default to 0, so the first refresh after an upgrade
+        # re-runs the full pass once and then settles into the cheap path.
+        # files.content_capped: set when a file's string-literal corpus hit the
+        # per-file budget. It has to live in the index, not in the parsing
+        # process's state: a steady-state query reports the blind spot just as
+        # much as the refresh that produced it.
+        fcols = {r[1] for r in self.conn.execute("PRAGMA table_info(files)")}
+        if "content_capped" not in fcols:
+            self.conn.execute(
+                "ALTER TABLE files ADD COLUMN content_capped INTEGER NOT NULL DEFAULT 0"
+            )
+        rcols = {r[1] for r in self.conn.execute("PRAGMA table_info(relations)")}
+        if "tried" not in rcols:
+            self.conn.execute(
+                "ALTER TABLE relations ADD COLUMN tried INTEGER NOT NULL DEFAULT 0"
+            )
+        # created here, not in SCHEMA: SCHEMA runs first (via _new_conn) and this
+        # index references a column older indexes only gain just above
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rel_pending ON relations(tried, rtype) "
+            "WHERE target_id IS NULL"
+        )
 
     # ---------------- files ----------------
 
@@ -535,6 +598,19 @@ class DB:
 
     def count_symbols(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
+
+    def has_unresolved_edges(self) -> bool:
+        """Any call edge no resolution pass has looked at yet.
+
+        Answered by the partial index `idx_rel_pending`, so a refresh can ask it
+        on every call: it is how a pass knows the graph is still owed work after
+        an earlier pass stopped at its time budget.
+        """
+        return bool(self.conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM relations "
+            "WHERE target_id IS NULL AND tried = 0 "
+            "AND rtype IN ('calls', 'references', 'inherits'))"
+        ).fetchone()[0])
 
     def count_files(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]

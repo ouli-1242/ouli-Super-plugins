@@ -7,7 +7,7 @@ from tree_sitter import Language, Parser
 
 from fastgraph.parsers.base import CallRef, ImportRef, ParseResult, SymbolInfo
 from fastgraph.parsers.registry import register_adapter
-from fastgraph.parsers.util import node_text
+from fastgraph.parsers.util import node_text, sig_params
 
 
 def _go_calls(node, source: bytes) -> list[CallRef]:
@@ -78,7 +78,7 @@ class GoAdapter:
                 params = node.child_by_field_name("parameters")
                 sym = SymbolInfo(
                     name=name, kind="function", qualified_name=name,
-                    signature=f"func {name}({node_text(params, source, 200) if params else ''})",
+                    signature=f"func {name}{sig_params(params, source)}",
                     doc="", start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
                     calls=_go_calls(node, source),
@@ -107,7 +107,7 @@ class GoAdapter:
                 sym = SymbolInfo(
                     name=name, kind="method",
                     qualified_name=f"{parent}.{name}" if parent else name,
-                    signature=f"func ({node_text(receiver, source, 100)}) {name}({node_text(params, source, 200) if params else ''})",
+                    signature=f"func {sig_params(receiver, source, 100)} {name}{sig_params(params, source)}",
                     doc="", start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
                     parent=parent, calls=_go_calls(node, source),

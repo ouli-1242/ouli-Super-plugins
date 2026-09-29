@@ -1,4 +1,4 @@
-"""FastGraph-MCP server: one fixed 13-tool surface over an SQLite code graph.
+"""FastGraph-MCP server: one fixed 14-tool surface over an SQLite code graph.
 
 The same surface is used whether FastGraph runs alone or next to another code
 MCP: locate (code_search / symbol_info / file_symbols), read (read_file /
@@ -23,6 +23,7 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from fastgraph import __version__
 from fastgraph.db import DB
 from fastgraph.index import Indexer
 from fastgraph.tools import Toolbox
@@ -30,8 +31,9 @@ from fastgraph.tools import Toolbox
 _ROOT_DESC = "Optional: another project root, for this one call only."
 _LIMIT_DESC = "Max results to return (keep small: 10-20)."
 _SYMBOL_DESC = (
-    "Symbol name: plain name, Class.method, or a slash name path "
-    "(Class/method, optional leading '/' and trailing '[i]')."
+    "Symbol name: plain name, Class.method (Rust/C++ Class::method is accepted "
+    "too), or a slash name path (Class/method, optional leading '/' and "
+    "trailing '[i]'). Copy a qualified_name from code_search when unsure."
 )
 
 _INSTRUCTIONS = (
@@ -53,6 +55,9 @@ _INSTRUCTIONS = (
     "- finished a round of edits -> changed_context() to re-check the blast "
     "radius; pass base=\"main\" to cover a whole branch\n"
     "- unfamiliar repo -> project_overview() once, then navigate\n"
+    "- an answer carrying pending_files + hint came from a still-building index: "
+    "'not found' there means unknown, not absent -- re-run or call reindex() to "
+    "finish the build\n"
     "wrong folder? activate_project(root=\"/abs/path\") once, then everything "
     "points there; every tool also takes root=<abs path> for a one-off "
     "cross-project query. All line numbers are 1-based. Responses are compact "
@@ -66,7 +71,7 @@ def build_server(root) -> MCPServer:
     indexer = Indexer(root, db)
     tools = Toolbox(root, db, indexer)
 
-    server = MCPServer("fastgraph", instructions=_INSTRUCTIONS)
+    server = MCPServer("fastgraph", instructions=_INSTRUCTIONS, version=__version__)
 
     # Every FastGraph tool is read-only (it never edits source code) and
     # deterministic for a given index state, so advertise that to the client via
@@ -88,6 +93,14 @@ def build_server(root) -> MCPServer:
     def activate_project(root: Annotated[str, Field(description="Absolute path to the project folder to activate for this session; afterwards all tools run against it.")]) -> dict:
         """Point the server at a project folder for this session; afterwards all tools run against it. Every tool also accepts root=<abs path> for a one-off cross-project query."""
         return tools.activate_project(root)
+
+    @tool
+    def reindex(
+        full: Annotated[bool, Field(description="true = drop the existing index and rebuild from scratch (after editing .fastgraphignore, or when results look stale).")] = False,
+        root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
+    ) -> dict:
+        """Finish building the index in one call: other tools stop at a time budget and report `pending_files`, this one loops until nothing is left. Can take minutes on a big repo (batches are durable, so a client timeout or an interrupt loses nothing and any later call resumes)."""
+        return tools.reindex(full=full, root=root)
 
     @tool
     def project_overview(root: Annotated[str | None, Field(description=_ROOT_DESC)] = None) -> dict:
@@ -157,7 +170,7 @@ def build_server(root) -> MCPServer:
         depth: Annotated[int, Field(description="How many levels of callees to traverse (1 = direct calls only).")] = 1,
         root: Annotated[str | None, Field(description=_ROOT_DESC)] = None,
     ) -> dict:
-        """What this symbol calls. depth>=2 returns the downstream call tree. `unresolved_outgoing` counts callees that could not be resolved: the list is incomplete by that many edges."""
+        """What this symbol calls. depth>=2 returns the downstream call tree. `unresolved_outgoing` counts callees that could not be resolved: the list is incomplete by that many edges. Each entry carries `evidence`: "same_file"/"imported" (the resolver had file-level proof) or "name_only" (matched on the name alone -- treat as a guess)."""
         return tools.find_callees(symbol, limit=limit, depth=depth, root=root)
 
     @tool

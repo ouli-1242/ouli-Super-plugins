@@ -110,11 +110,12 @@ def test_nested_brief_exposes_name_path(tmp_root):
 
 # ---------------- advertised surface ----------------
 
-# The whole surface: 13 tools. Deliberately small -- every definition is re-sent
+# The whole surface: 14 tools. Deliberately small -- every definition is re-sent
 # with each request, so a tool only earns a slot by answering something an
 # LSP-backed tool cannot answer cheaply.
 ADVERTISED = {
     "activate_project",
+    "reindex",
     "project_overview",
     "code_search",
     "symbol_info",
@@ -147,7 +148,7 @@ def test_advertised_surface_is_exactly_the_intended_set(tmp_path):
     """
     names = {t.name for t in _surface(tmp_path)._tool_manager.list_tools()}
     assert names == ADVERTISED, sorted(names ^ ADVERTISED)
-    assert len(names) == 13
+    assert len(names) == 14
 
 
 def test_all_tools_advertise_readonly_annotations(tmp_path):

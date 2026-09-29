@@ -2,8 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+_WS_RE = re.compile(r"\s+")
+# padding a collapsed line break leaves beside a parenthesis: `f(\n    a,\n) `
+_SIG_PAD_RE = re.compile(r"\(\s+|\s+\)")
+
+
+def normalize_signature(sig: str) -> str:
+    """Collapse a declaration to a single line, at index time.
+
+    Parsers store the declaration verbatim (CRLF and continuation lines
+    included), and signatures ride along in every list payload --
+    ``code_search`` / ``file_symbols`` / ``find_callers`` / ``impact_analysis``.
+    A six-parameter function therefore spent ~120 bytes of whitespace on every
+    row: ``file_symbols`` on black/nodes.py cost 11k characters for 40 symbols.
+    Normalizing once here fixes all of them, instead of in each consumer.
+    """
+    collapsed = _WS_RE.sub(" ", sig or "").strip()
+    return _SIG_PAD_RE.sub(lambda m: m.group(0).strip(), collapsed)
 
 
 @dataclass

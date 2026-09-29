@@ -7,7 +7,7 @@ from tree_sitter import Language, Parser
 
 from fastgraph.parsers.base import CallRef, ImportRef, ParseResult, SymbolInfo
 from fastgraph.parsers.registry import register_adapter
-from fastgraph.parsers.util import node_text
+from fastgraph.parsers.util import node_text, sig_params
 
 
 def _rust_calls(node, source: bytes) -> list[CallRef]:
@@ -59,7 +59,7 @@ class RustAdapter:
                 sym = SymbolInfo(
                     name=name, kind=kind,
                     qualified_name=f"{in_impl}::{name}" if in_impl else (name if not parent else f"{parent}.{name}"),
-                    signature=f"fn {name}({node_text(params, source, 200) if params else ''})",
+                    signature=f"fn {name}{sig_params(params, source)}",
                     doc="", start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
                     parent=in_impl or parent, calls=_rust_calls(node, source),

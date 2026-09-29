@@ -38,6 +38,35 @@ MAX_READ_LINES = 400
 MAX_CACHED_ROOTS = 8
 
 
+def _tag_callee_evidence(db: DB, rows: list[dict], roots: list[dict]) -> None:
+    """Stamp each callee with how much the name-based resolver actually proved.
+
+    ``children.push(...)`` is stored twice -- bare ``push`` and qualified
+    ``excessDomChildren.push`` -- and the bare copy skips the member-evidence
+    gate, so preact's ``excessDomChildren.push()`` linked to a ``const push``
+    declared inside an unrelated browser test. Dropping the bare copy is not
+    safe either (``self.x()`` resolves through it), so the edge stays and the
+    caller is told what it is worth: ``same_file`` / ``imported`` (the callee
+    lives in a file the caller imports) or ``name_only``.
+
+    With ``depth >= 2`` a level-2 callee's caller is an intermediate symbol, not
+    one of ``roots``, so it can be labelled ``name_only`` while genuinely
+    imported -- the label understates evidence, never overstates it.
+    """
+    caller_files = {r.get("path") for r in roots if r.get("path")}
+    imported: set[str] = set()
+    for path in caller_files:
+        for imp in graph.module_dependencies(db, path).get("imports", ()):
+            imported.update(imp.get("resolves_to") or ())
+    for row in rows:
+        f = row.get("file") or ""
+        row["evidence"] = (
+            "same_file" if f in caller_files
+            else "imported" if f in imported
+            else "name_only"
+        )
+
+
 class Toolbox:
     """Stateful tool handler bound to one project root.
 
@@ -141,6 +170,41 @@ class Toolbox:
             self._evict_roots()
             return sub
 
+    def reindex(self, full: bool = False, root: str | None = None) -> dict:
+        """Build the index all the way to the end in one call.
+
+        Every other tool stops its refresh at `INDEX_TIME_BUDGET_S` (so a call
+        cannot hang for minutes on a big repo) and answers from the partial index
+        while reporting `pending_files`. This is the escape hatch for "I want the
+        complete graph now": it loops over budget-sized passes until nothing is
+        left. `full=True` drops the existing index first -- after editing
+        `.fastgraphignore`, or when an answer looks inexplicably stale.
+        """
+        tb = self._for_root(root)
+        stats = tb.indexer.force_index() if full else tb.indexer.build_to_completion()
+        out = {
+            "ok": True,
+            "rebuilt": bool(full),
+            "files": stats.total_files,
+            "symbols": stats.total_symbols,
+            "parsed": stats.parsed,
+            "errors": stats.errors,
+            "duration_ms": round(stats.duration_ms, 1),
+            # 0 by construction: this call is the one that finishes the build
+            "pending_files": stats.pending_files,
+            "pending_edges": stats.pending_edges,
+        }
+        if stats.skipped:
+            out["skipped"] = True
+            out["hint"] = (
+                "auto-detected root is the user home dir (or too large to "
+                "scan); call activate_project(root=...) with the actual "
+                "project folder"
+            )
+        if stats.large_files:
+            out["large_files"] = stats.large_files
+        return out
+
     def _ensure_fresh(self) -> dict:
         """Lazy incremental refresh: only changed files re-parsed."""
         stats = self.indexer.refresh()
@@ -161,6 +225,26 @@ class Toolbox:
                 "auto-detected root is the user home dir (or too large to "
                 "scan); call activate_project(root=...) with the actual "
                 "project folder"
+            )
+        if stats.pending_files and not stats.skipped:
+            # a partial index makes "not found" meaningless: say so on every
+            # answer rather than let a missing symbol read as absent code
+            out["pending_files"] = stats.pending_files
+            out["hint"] = (
+                f"index incomplete: {stats.pending_files} files are not indexed "
+                "yet (this call stopped at its time budget), and the call graph "
+                "is only built once the index completes -- a missing symbol or "
+                "caller here means 'not indexed yet', not 'absent'. Call again "
+                "to continue the build, or reindex(full=true) to finish it now"
+            )
+        elif stats.pending_edges and not stats.skipped:
+            out["pending_edges"] = stats.pending_edges
+            out["hint"] = (
+                f"every file is indexed, but the call graph is still being "
+                f"assembled ({stats.pending_edges} call edges not looked at yet; "
+                "this call stopped at its time budget) -- find_callers, "
+                "find_callees and impact_analysis are incomplete until it "
+                "reaches 0. Call again, or reindex() to finish in one call"
             )
         return out
 
@@ -190,7 +274,11 @@ class Toolbox:
         (re-parsed/deleted/errored/skipped) or whenever FASTGRAPH_DEBUG is set
         — keeps steady-state output compact (no per-call `ms`/no-op noise)."""
         out["root"] = str(tb.root)
-        if refresh and (self._debug or refresh["parsed"] or refresh["deleted"] or refresh["errors"] or refresh.get("skipped")):
+        if refresh and (
+            self._debug or refresh["parsed"] or refresh["deleted"] or refresh["errors"]
+            or refresh.get("skipped") or refresh.get("pending_files")
+            or refresh.get("pending_edges")
+        ):
             out["refresh"] = refresh
         return out
 
@@ -255,6 +343,22 @@ class Toolbox:
                 "resolved (the receiver's type is not statically known); an "
                 "empty caller list is not proof that nothing calls it"
             )
+        elif not callers and roots:
+            # No call edge *and* nothing unresolved: still not evidence of dead
+            # code. An enum / const / type is read, not called, so it never
+            # enters the call graph -- report its importers instead of leaving
+            # `callers: []` to be misread as "nobody uses this".
+            users = graph.imported_by(
+                tb.db, [r.get("path") or "" for r in roots], limit=20
+            )
+            if users:
+                out["imported_by"] = users[:8]
+                out["hint"] = (
+                    f"{len(users)}{'+' if len(users) == 20 else ''} file(s) import the "
+                    "module defining this symbol. It has no call edges because it is "
+                    "read rather than called (enum/const/type), so the empty caller "
+                    "list is not evidence that it is unused"
+                )
         return self._finish(out, tb, refresh)
 
     def find_callees(self, symbol: str, limit: int = 50, depth: int = 1, root: str | None = None) -> dict:
@@ -263,10 +367,12 @@ class Toolbox:
         roots = graph.find_symbols(tb.db, symbol)
         callees = graph.find_callees(tb.db, symbol, limit=limit, depth=depth)
         pending = sum(graph.unresolved_outgoing(tb.db, r["id"]) for r in roots[:3])
+        rows = [tb._brief(s) for s in callees]
+        _tag_callee_evidence(tb.db, rows, roots)
         out = {
             "symbol": symbol,
             "found": bool(roots),
-            "callees": [tb._brief(s) for s in callees],
+            "callees": rows,
             "count": len(callees),
         }
         if pending:
@@ -319,7 +425,10 @@ class Toolbox:
             # since the previous tool call. Coarser, but keeps the tool useful.
             changes = {rel: "modified" for rel in tb._last_changed}
             source = "mtime" if changes else "none"
-        by_status = gitutil.changed_symbols(tb.db, changes)
+        by_status = gitutil.changed_symbols(
+            tb.db, changes,
+            gitutil.changed_ranges(base_dir, base) if base_dir is not None else None,
+        )
 
         affected: list[dict] = []
         seen: set[int] = set()

@@ -41,6 +41,71 @@ DEFAULT_EXCLUDES = {
 
 MAX_FILE_SIZE = 2 * 1024 * 1024  # skip files larger than 2MB
 
+# Which of several same-named symbols is the real one. A tree-sitter index has
+# no type information, so a plain-name query hits every file that declares that
+# name: on preact ``diff`` resolved to test/fixtures/preact.js (a bundled legacy
+# build), on googletest ``AssertionResult`` resolved to an empty stub inside
+# gtest_unittest.cc, and on zustand ``createStore`` to a closure inside a test.
+# Ranking by where the file lives fixes all three without needing types.
+_SOURCE_SEGMENTS = {
+    "src", "source", "sources", "lib", "libs", "pkg", "packages", "crates",
+    "internal", "app", "apps", "cmd",
+}
+_NOISE_TEST_DIRS = {
+    "test", "tests", "testing", "__tests__", "_tests", "spec", "specs",
+    "fixtures", "_fixtures", "fixture", "testdata",
+}
+# Demo / prose directories. Only the *first* path segment counts: `samples` and
+# `example` are package-name words all over the JVM world
+# (`org/springframework/samples/...` is spring-petclinic's source tree, and
+# `com/example/app/...` is the default Android package), so matching them at any
+# depth ranked every symbol in those repos as test code.
+_NOISE_LEAD_DIRS = {
+    "example", "examples", "demo", "demos", "sample", "samples",
+    "doc", "docs", "website", "bench", "benches", "benchmark", "benchmarks",
+    "vendor", "third_party", "node_modules", "legacy", "coverage",
+    "migration", "migrations",
+}
+# basename shapes that mark a test file across the supported languages. The
+# bare `Test`/`Tests` forms are matched case-sensitively on purpose: a
+# lowercased check would flag `latest.py` or `contests.ts`.
+_TEST_NAME_SUFFIXES = ("_test", "_tests", "_spec", "_specs")
+_DOTTED_TEST_STEMS = (".test", ".tests", ".spec", ".specs")
+_CLASS_TEST_SUFFIXES = ("Tests", "Test", "Spec", "IT")
+
+
+def _is_test_filename(name: str) -> bool:
+    stem = name.rsplit(".", 1)[0] if "." in name else name
+    low = stem.lower()
+    return (
+        low.endswith(_TEST_NAME_SUFFIXES)
+        or stem.endswith(_DOTTED_TEST_STEMS)
+        or low.startswith("test_")
+        or low == "conftest"
+        or stem.endswith(_CLASS_TEST_SUFFIXES)
+    )
+
+
+def path_rank(rel: str) -> int:
+    """0 = shipped source, 1 = other code, 3 = test / fixture / prose.
+
+    Lower ranks win when several files declare the same symbol name. Tests are
+    checked before sources because a test usually sits *inside* the source tree
+    (``packages/shared/__tests__/x.spec.ts``).
+    """
+    parts = rel.split("/")
+    dirs = [p.lower() for p in parts[:-1]]
+    if set(dirs) & _NOISE_TEST_DIRS or _is_test_filename(parts[-1]):
+        return 3
+    if dirs and dirs[0] in _NOISE_LEAD_DIRS:
+        return 3
+    return 0 if set(dirs) & _SOURCE_SEGMENTS else 1
+
+
+def is_test_path(rel: str) -> bool:
+    """True for the rank-3 layouts (tests get reported separately by impact analysis)."""
+    return path_rank(rel) == 3
+
 RESERVED_ENTRIES = {
     ".fastgraph",
 }
@@ -114,6 +179,15 @@ def ensure_ignore_template(index_dir: Path) -> None:
             f.write_text(IGNORE_TEMPLATE, encoding="utf-8")
         except OSError:
             pass
+    # The index is created inside somebody else's repository and can be large
+    # (sentry, 17,703 files: 316MB). A `*` .gitignore keeps it out of their
+    # `git status` without editing their own .gitignore.
+    gi = index_dir / ".gitignore"
+    if not gi.is_file():
+        try:
+            gi.write_text("*\n", encoding="utf-8")
+        except OSError:
+            pass
 
 
 def parse_ignore(text: str) -> list[str]:
@@ -169,8 +243,13 @@ class IgnoreMatcher:
     def __bool__(self) -> bool:
         return bool(self.names or self.name_re or self.path_re)
 
-    def matches(self, rel: str, name: str) -> bool:
-        """True when this entry (project-relative path + bare name) is ignored."""
+    def matches(self, rel: str, name: str, check_parents: bool = True) -> bool:
+        """True when this entry (project-relative path + bare name) is ignored.
+
+        ``check_parents=False`` skips the ancestor-directory sweep for callers
+        that walk top-down and never descend into an ignored directory -- the
+        per-segment ``normcase`` calls are a large share of a scan otherwise.
+        """
         n = os.path.normcase(name)
         if n in self.names:
             return True
@@ -181,7 +260,7 @@ class IgnoreMatcher:
         nrel = os.path.normcase(rel)
         if name_re is not None and (name_re.match(n) or name_re.match(nrel)):
             return True
-        if self.names or name_re is not None:
+        if check_parents and (self.names or name_re is not None):
             # a pattern without a separator also matches any parent directory
             for seg in rel.split("/")[:-1]:
                 nseg = os.path.normcase(seg)

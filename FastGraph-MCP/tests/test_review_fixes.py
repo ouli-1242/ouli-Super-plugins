@@ -104,9 +104,9 @@ def test_steady_refresh_does_not_rerun_resolution(tmp_root, monkeypatch):
     calls = {"n": 0}
     real = index_mod._resolve_all
 
-    def counting(d):
+    def counting(d, *args, **kwargs):
         calls["n"] += 1
-        return real(d)
+        return real(d, *args, **kwargs)
 
     monkeypatch.setattr(index_mod, "_resolve_all", counting)
 

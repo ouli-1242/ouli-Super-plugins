@@ -78,7 +78,9 @@ def main(argv: list[str] | None = None) -> int:
         db = DB(root)
         indexer = Indexer(root, db)
 
-        cold_ms, stats = _timed(indexer.refresh)
+        # build_to_completion, not refresh: one refresh stops at the per-call time
+        # budget and reports pending_files, which would time a partial build
+        cold_ms, stats = _timed(indexer.build_to_completion)
         print(f"files={stats.total_files}  symbols={stats.total_symbols}")
         print(f"cold first index : {cold_ms:8.1f} ms")
 

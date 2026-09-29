@@ -10,7 +10,7 @@ from tree_sitter import Language, Parser
 
 from fastgraph.parsers.base import CallRef, ImportRef, ParseResult, SymbolInfo
 from fastgraph.parsers.registry import register_adapter
-from fastgraph.parsers.util import call_targets, node_text, param_types_of
+from fastgraph.parsers.util import call_targets, node_text, param_types_of, sig_params
 
 _TS_LANGS: dict[str, Language] = {
     "typescript": Language(tree_sitter_typescript.language_typescript()),
@@ -159,6 +159,13 @@ class TSAdapter:
 
             if t == "import_statement":
                 imports.append(ImportRef(text=node_text(node, source, 300), line=node.start_point[0] + 1))
+            elif t == "export_statement" and node.child_by_field_name("source") is not None:
+                # A re-export (`export * from './x'`, `export { a } from './x'`)
+                # is a dependency edge like an import. Barrel files are made of
+                # nothing else, so missing them left `src/index.ts` with an
+                # empty dependency record and every file behind it invisible to
+                # file_deps / import_dependents / layering.
+                imports.append(ImportRef(text=node_text(node, source, 300), line=node.start_point[0] + 1))
             elif t == "class_declaration":
                 name_node = node.child_by_field_name("name")
                 name = node_text(name_node, source, 120)
@@ -178,7 +185,7 @@ class TSAdapter:
                 name = node_text(node.child_by_field_name("name"), source, 120)
                 parent = stack[-1].qualified_name if stack else None
                 params = node.child_by_field_name("parameters")
-                sig = f"{name}({node_text(params, source, 200) if params else ''})"
+                sig = f"{name}{sig_params(params, source)}"
                 sym = SymbolInfo(
                     name=name, kind="method",
                     qualified_name=parent + "." + name if parent else name,
@@ -198,7 +205,7 @@ class TSAdapter:
                 sym = SymbolInfo(
                     name=name, kind="function",
                     qualified_name=parent + "." + name if parent else name,
-                    signature=f"function {name}({node_text(params, source, 200) if params else ''})",
+                    signature=f"function {name}{sig_params(params, source)}",
                     doc=_js_doc(node, source),
                     start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                     start_col=node.start_point[1], end_col=node.end_point[1],
@@ -266,7 +273,7 @@ class TSAdapter:
                     sym = SymbolInfo(
                         name=vname, kind="method",
                         qualified_name=parent + "." + vname if parent else vname,
-                        signature=f"{vname} = ({node_text(params, source, 200) if params else ''}) => …",
+                        signature=f"{vname} = {sig_params(params, source)} => …",
                         doc=_js_doc(node, source),
                         start_line=node.start_point[0] + 1, end_line=node.end_point[0] + 1,
                         start_col=node.start_point[1], end_col=node.end_point[1],
