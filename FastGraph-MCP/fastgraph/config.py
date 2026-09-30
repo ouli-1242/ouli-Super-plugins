@@ -116,6 +116,42 @@ def user_home() -> Path:
     return Path(getenv("USERPROFILE") or Path.home()).resolve()
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    """Opt-in env switch: anything but empty/0/false/no is on.
+
+    One parser for every FASTGRAPH_* flag, so `FASTGRAPH_MEMORY=0` cannot mean
+    "on" in one tool and "off" in another.
+    """
+    raw = getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("", "0", "false", "no")
+
+
+def memory_enabled() -> bool:
+    """The project-memory layer: on unless `FASTGRAPH_MEMORY=0`.
+
+    On costs the memory tools' schemas and nothing else -- `memory.sqlite` is not
+    created until something is actually written (see Toolbox._memory_if_present),
+    so a project that never uses the layer has no new file in it. Turning it off
+    is the way to get the byte-identical read-only surface back.
+    """
+    return env_flag("FASTGRAPH_MEMORY", True)
+
+
+def navigation_enabled() -> bool:
+    """`FASTGRAPH_PROFILE=lean` withholds the locate/read tools (default: registered).
+
+    FastGraph is meant to work alone, so `full` is the default and losing nothing
+    is the point: lean is for running next to another code server, where reading a
+    file and finding a definition are already covered elsewhere and FastGraph's
+    contribution is the graph, the change view and the memory. It removes tools
+    from what the client is told exists -- it does not disable anything, and every
+    capability stays reachable in `full`.
+    """
+    return (getenv("FASTGRAPH_PROFILE") or "full").strip().lower() != "lean"
+
+
 # Local-only ignore file inside the index dir; auto-created with a template on
 # first index. (The project-root variant was dropped: local-only keeps the
 # project tree clean and the rules per-developer.)

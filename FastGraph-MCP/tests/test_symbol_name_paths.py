@@ -12,6 +12,7 @@ to another server.
 """
 
 import shutil
+import re
 import sys
 from pathlib import Path
 
@@ -110,24 +111,24 @@ def test_nested_brief_exposes_name_path(tmp_root):
 
 # ---------------- advertised surface ----------------
 
-# The whole surface: 14 tools. Deliberately small -- every definition is re-sent
-# with each request, so a tool only earns a slot by answering something an
-# LSP-backed tool cannot answer cheaply.
+# The read-only surface with the memory layer parked: 11 tools. Deliberately
+# small -- every definition is re-sent with each request, so a tool only earns a
+# slot by answering something an LSP-backed tool cannot answer cheaply. Seven
+# earlier tools were folded into three (`read_code`, `call_graph`, `changes`)
+# because they differed only by a direction, a target kind or a time base, which
+# is a choice the caller has to make before it knows what it is looking for.
 ADVERTISED = {
     "activate_project",
     "reindex",
     "project_overview",
     "code_search",
     "symbol_info",
-    "file_symbols",
-    "read_file",
-    "symbol_body",
-    "find_callers",
-    "find_callees",
+    "read_code",
+    "call_graph",
     "impact_analysis",
     "file_deps",
     "module_cycles",
-    "changed_context",
+    "changes",
 }
 
 
@@ -139,19 +140,24 @@ def _surface(tmp_path):
     return build_server(work)
 
 
-def test_advertised_surface_is_exactly_the_intended_set(tmp_path):
+def test_advertised_surface_is_exactly_the_intended_set(tmp_path, monkeypatch):
     """Pinning the set makes an accidental re-exposure fail loudly.
 
     The tools held back (trace_path, rename_impact, type_hierarchy,
     unused_symbols, hot_symbols, file_metrics, get_status) remain implemented and
     tested as an internal API -- see the UNEXPOSED note in fastgraph.server.
+
+    The memory layer parks itself out here: these pins are about the read-only
+    core, and the memory surface is pinned in test_memory.py.
     """
+    monkeypatch.setenv("FASTGRAPH_MEMORY", "0")
     names = {t.name for t in _surface(tmp_path)._tool_manager.list_tools()}
     assert names == ADVERTISED, sorted(names ^ ADVERTISED)
-    assert len(names) == 14
+    assert len(names) == 11
 
 
-def test_all_tools_advertise_readonly_annotations(tmp_path):
+def test_all_tools_advertise_readonly_annotations(tmp_path, monkeypatch):
+    monkeypatch.setenv("FASTGRAPH_MEMORY", "0")
     tools = _surface(tmp_path)._tool_manager.list_tools()
     for t in tools:
         a = t.annotations
@@ -177,3 +183,69 @@ def test_advertised_content_does_not_name_another_server(tmp_path):
     offenders = [t for t in texts if "serena" in t.lower()]
     assert offenders == [], offenders
     assert "1-based" in (server.instructions or "")
+
+
+# The locate/read tools `FASTGRAPH_PROFILE=lean` withholds: reading a file, listing a
+# file's symbols and finding a definition are covered by a client's own tools or an
+# LSP-backed server, so a project running both does not pay their schema twice.
+# Withholding them is opt-in precisely because FastGraph also runs alone.
+LEAN_WITHHELD = {"code_search", "symbol_info", "read_code"}
+MEMORY_TOOLS = {"remember", "recall", "forget", "checkpoint"}
+
+
+def _names(server):
+    return {t.name for t in server._tool_manager.list_tools()}
+
+
+def test_lean_profile_advertises_only_the_differentiated_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("FASTGRAPH_MEMORY", "0")
+    monkeypatch.setenv("FASTGRAPH_PROFILE", "lean")
+    assert _names(_surface(tmp_path)) == ADVERTISED - LEAN_WITHHELD
+
+    monkeypatch.setenv("FASTGRAPH_MEMORY", "1")
+    assert _names(_surface(tmp_path)) == (ADVERTISED - LEAN_WITHHELD) | MEMORY_TOOLS
+
+
+@pytest.mark.parametrize("nav", ["full", "lean"])
+@pytest.mark.parametrize("memory", ["1", "0"])
+def test_instructions_stay_one_readable_list_whatever_is_registered(tmp_path, monkeypatch, nav, memory):
+    """The guidance is assembled from per-profile blocks, so the seams are the part
+    that rots: a block that forgot its trailing newline fuses two sentences into
+    "...source files.Wrong folder...", and a duplicated footer reads as two
+    contradictory conventions. Both are invisible to a diff and visible to the model.
+    """
+    from fastgraph.server import surface_instructions
+
+    monkeypatch.setenv("FASTGRAPH_PROFILE", nav)
+    monkeypatch.setenv("FASTGRAPH_MEMORY", memory)
+    text = _surface(tmp_path).instructions
+    assert text == surface_instructions(nav != "lean", memory != "0")
+    assert re.search(r"[a-z]\.[A-Z]", text) is None, "sentences glued at a block seam"
+    assert text.count("1-based") == 1
+    assert text.rstrip().endswith("not file dumps."), text[-60:]
+    assert ("source text comes only from read_code" in text) is (nav != "lean")
+
+
+@pytest.mark.parametrize("nav", ["full", "lean"])
+@pytest.mark.parametrize("memory", ["1", "0"])
+def test_nothing_advertises_a_tool_this_process_did_not_register(tmp_path, monkeypatch, nav, memory):
+    """Guidance naming an unregistered tool is a wrong-tool invitation.
+
+    A tool reference in this server's prose is always written `name(...)` or
+    `name=...`, so that is what is searched -- the call syntax is what separates
+    "use changes(base=...)" from the English word in "changed files".
+    """
+    monkeypatch.setenv("FASTGRAPH_PROFILE", nav)
+    monkeypatch.setenv("FASTGRAPH_MEMORY", memory)
+    server = _surface(tmp_path)
+    registered = _names(server)
+    absent = (ADVERTISED | MEMORY_TOOLS) - registered
+    texts = [server.instructions or ""]
+    pm = server._prompt_manager
+    texts.append(str(pm.get_prompt("fastgraph-workflow").fn()))
+    for t in server._tool_manager.list_tools():
+        texts.append(t.description or "")
+        for prop in (t.parameters or {}).get("properties", {}).values():
+            texts.append(str(prop.get("description") or ""))
+    named = {n for n in absent for text in texts if re.search(rf"\b{n}[(_=]", text)}
+    assert named == set(), f"{sorted(named)} named but not registered (nav={nav}, memory={memory})"

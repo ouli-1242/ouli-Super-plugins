@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import threading
 import time
@@ -119,6 +120,105 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(
 );
 """
 
+# A second FTS table over the same rows, tokenized by *trigram* instead of by word.
+# It exists for one reason: `unicode61` does not split a CJK run, so a whole Chinese
+# docstring is one token and `"限流"*` never matches it. Today that case is served by
+# `LOWER(s.doc) LIKE '%…%'` -- a full scan of the symbols table, and it cannot reach
+# `name`/`qualified_name` at all. Trigrams index those too and turn the scan into a
+# MATCH.
+#
+# Only rows carrying non-ASCII text go in. An English-only repository would otherwise
+# duplicate every docstring in the file for zero benefit, and trigram indexes are
+# bigger than word indexes; with the filter, the cost on such a repo is one empty
+# table. ASCII queries stay on fts_symbols, where word-token prefix matching is the
+# better behaviour, so switching the existing table was never on the table.
+FTS_CJK_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_cjk USING fts5(
+    name, qualified_name, doc, signature,
+    file_path,
+    tokenize = 'trigram'
+);
+"""
+
+# Bump when the row filter or the column list changes: it is what tells an existing
+# index that its fts_cjk content is stale and has to be rebuilt from `symbols`.
+FTS_CJK_REV = "1"
+
+_TRIGRAM: bool | None = None
+
+
+def trigram_supported() -> bool:
+    """Does this interpreter's SQLite have a working FTS5 trigram tokenizer?
+
+    Probed by *behaviour*, not by version number: the bundled SQLite follows the
+    interpreter build, so 3.34+ is necessary but not sufficient (FTS5 can also be
+    compiled out), and a table created against a tokenizer that silently does nothing
+    would answer every CJK query with an empty result forever.
+    """
+    global _TRIGRAM
+    if _TRIGRAM is None:
+        try:
+            probe = sqlite3.connect(":memory:")
+            probe.execute("CREATE VIRTUAL TABLE p USING fts5(x, tokenize='trigram')")
+            probe.execute("INSERT INTO p VALUES ('登录限流策略')")
+            # the needle is three characters because a trigram cannot express fewer:
+            # probing with a 2-char term reports "unsupported" on a build where the
+            # tokenizer works perfectly (and a table that matches nothing would look
+            # like a data problem, not a startup probe problem)
+            _TRIGRAM = bool(
+                probe.execute("SELECT 1 FROM p WHERE p MATCH ?", ('"限流策"',)).fetchone()
+            )
+            probe.close()
+        except Exception:
+            _TRIGRAM = False
+    return _TRIGRAM
+
+
+def _has_cjk(*texts: object) -> bool:
+    """True when any of these strings contains a non-ASCII character."""
+    return any(t and not str(t).isascii() for t in texts)
+
+# Project-memory layer (on by default; FASTGRAPH_MEMORY=0 parks it). Separate
+# file, separate schema:
+# index.sqlite's contract is "delete it and the index rebuilds" (reindex
+# full=true, INDEX_VERSION upgrades -- index.py), and notes must not be
+# collateral damage of that. No FK to the code tables on purpose: a note
+# outlives the symbol it was pinned to, which is exactly what makes an
+# orphaned note reportable rather than silently gone.
+#
+# AUTOINCREMENT is load-bearing, not style: `forget(id=…)` addresses a note by this
+# column, and a plain INTEGER PRIMARY KEY hands out max(rowid)+1 -- delete the newest
+# note and the next insert reuses its id, so a stale id copied from an old `recall`
+# would delete a different note than the one it named.
+MEMORY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    anchor_type TEXT NOT NULL,          -- symbol | file | module | project
+    anchor_key  TEXT NOT NULL,          -- canonical form, see memory.symbol_anchor
+    kind        TEXT NOT NULL,          -- decision | warning | todo | context | adr
+    body        TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_anchor ON notes(anchor_type, anchor_key);
+CREATE INDEX IF NOT EXISTS idx_notes_kind   ON notes(kind);
+
+-- Graph snapshots are what `what_changed` diffs. A hash cannot answer "which
+-- symbols appeared / which call edges broke", so the normalized sets themselves
+-- are stored (zlib; a few tens of thousands of edges compress to ~100KB).
+CREATE TABLE IF NOT EXISTS graph_snapshot (
+    id          INTEGER PRIMARY KEY,
+    label       TEXT NOT NULL,          -- caller-chosen baseline name
+    ref         TEXT NOT NULL DEFAULT '',  -- git rev recorded alongside
+    complete    INTEGER NOT NULL,       -- 1 = built from a finished index
+    symbol_blob BLOB NOT NULL,
+    edge_blob   BLOB NOT NULL,
+    cycle_blob  BLOB NOT NULL,
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snap_label ON graph_snapshot(label, id);
+"""
+
 
 def _stem_of(path: str) -> str:
     """``src/pkg/mod.py`` -> ``src.pkg.mod`` (lowercased, extension dropped)."""
@@ -126,12 +226,34 @@ def _stem_of(path: str) -> str:
 
 
 class DB:
-    def __init__(self, root: Path | str):
+    def __init__(
+        self,
+        root: Path | str,
+        filename: str = "index.sqlite",
+        schema: str = SCHEMA,
+        code_index: bool = True,
+    ):
+        """Open one SQLite file under `<root>/.fastgraph/`.
+
+        `code_index=False` (the memory store) skips the index-only startup work:
+        `_migrate_schema` reads symbols/relations PRAGMA tables, `_heal_fts`
+        rebuilds FTS -- neither exists in MEMORY_SCHEMA, and running them there
+        would either error or create the code tables inside memory.sqlite.
+        """
         self.root = Path(root).resolve()
         self.index_dir = self.root / ".fastgraph"
         self.index_dir.mkdir(parents=True, exist_ok=True)
         ensure_ignore_template(self.index_dir)
-        self.db_path = self.index_dir / "index.sqlite"
+        self.db_path = self.index_dir / filename
+        self._schema = schema
+        self._code_index = code_index
+        # the memory store has no symbols table to index, so it never grows FTS.
+        # The table is appended to the schema text rather than being part of SCHEMA:
+        # on an SQLite build without trigram support, executing that DDL would fail
+        # the entire startup instead of one optional index.
+        self._cjk_index = bool(code_index and trigram_supported())
+        if self._cjk_index:
+            self._schema = schema + FTS_CJK_SCHEMA
         self._local = threading.local()
         self._all_conns: list[sqlite3.Connection] = []
         self._stem_suffix_map: dict[str, list[str]] | None = None
@@ -158,11 +280,14 @@ class DB:
         try:
             for attempt in range(DDL_RETRIES):
                 try:
-                    self._migrate_schema()
-                    conn.executescript(SCHEMA)
+                    if self._code_index:
+                        self._migrate_schema()
+                    conn.executescript(self._schema)
                     conn.commit()
-                    self._heal_fts()
-                    conn.commit()
+                    if self._code_index:
+                        self._heal_fts()
+                        self._ensure_fts_cjk()
+                        conn.commit()
                     return
                 except sqlite3.OperationalError as e:
                     if "locked" not in str(e).lower() or attempt == DDL_RETRIES - 1:
@@ -181,7 +306,7 @@ class DB:
         # "database is locked" (default busy_timeout is 0)
         conn.execute(f"PRAGMA busy_timeout={DDL_BUSY_TIMEOUT_MS}")
         try:
-            conn.executescript(SCHEMA)
+            conn.executescript(self._schema)
             conn.commit()
         finally:
             conn.execute(f"PRAGMA busy_timeout={QUERY_BUSY_TIMEOUT_MS}")
@@ -207,6 +332,25 @@ class DB:
             except Exception:
                 pass
         self._all_conns.clear()
+
+    @contextlib.contextmanager
+    def patient_writes(self, ms: int = DDL_BUSY_TIMEOUT_MS):
+        """Wait for the write lock instead of dying during a write burst.
+
+        The steady-state 5s timeout is right for a hung query and wrong for a build:
+        a second window rebuilding the same import_edges can hold the lock longer
+        than that, and the loser raised "database is locked" out of the tool call
+        (reproduced with four processes on one index). Same reasoning as the startup
+        DDL -- a writer that waits is a writer that finishes. Thread-local like every
+        other connection here, so the burst that sets it is the burst that uses it.
+        """
+        conn = self.conn
+        previous = int(conn.execute("PRAGMA busy_timeout").fetchone()[0] or 0)
+        conn.execute(f"PRAGMA busy_timeout={int(ms)}")
+        try:
+            yield
+        finally:
+            conn.execute(f"PRAGMA busy_timeout={previous or QUERY_BUSY_TIMEOUT_MS}")
 
     # ---------------- meta ----------------
 
@@ -471,6 +615,8 @@ class DB:
         # edit. file_path is already stored in the FTS row: delete the file's
         # whole slice, including the empty-symbols case below.
         self.conn.execute("DELETE FROM fts_symbols WHERE file_path = ?", (path,))
+        if self._cjk_index:
+            self.conn.execute("DELETE FROM fts_cjk WHERE file_path = ?", (path,))
         if not symbols:
             return
         # map symbols to their rowids by (name, kind, start_line): `name` alone
@@ -525,6 +671,29 @@ class DB:
             "VALUES (?,?,?,?,?,?,?)",
             rows,
         )
+        self._write_fts_cjk(rows)
+
+    def _write_fts_cjk(self, rows: list[tuple]) -> None:
+        """Mirror the non-ASCII rows into the trigram table (same rowids).
+
+        `rows` is register_fts' 7-tuple shape: (id, name, qualified_name, doc, kind,
+        signature, path). The kind column is left out of fts_cjk on purpose -- it is
+        ASCII by construction, so a trigram index over it would only ever be noise.
+        """
+        if not self._cjk_index:
+            return
+        cjk = [
+            (sid, name, qname, doc, sig, path)
+            for sid, name, qname, doc, _kind, sig, path in rows
+            if _has_cjk(name, qname, doc, sig, path)
+        ]
+        if cjk:
+            self.conn.executemany(
+                "INSERT INTO fts_cjk "
+                "(rowid, name, qualified_name, doc, signature, file_path) "
+                "VALUES (?,?,?,?,?,?)",
+                cjk,
+            )
 
     def clear_fts(self) -> None:
         """Drop the whole FTS index.
@@ -535,6 +704,8 @@ class DB:
         duplicate rowid with "constraint failed").
         """
         self.conn.execute("DELETE FROM fts_symbols")
+        if self._cjk_index:
+            self.conn.execute("DELETE FROM fts_cjk")
 
     def _fts_aligned(self) -> bool:
         """True when fts rowids match symbols ids (at least one hit)."""
@@ -545,6 +716,64 @@ class DB:
         except Exception:
             return True
         return r is not None
+
+    def _rebuild_fts_cjk(self) -> None:
+        """Refill fts_cjk from `symbols`: a SQL pass, no parsing.
+
+        The doc/signature text already lives in the symbols table, so the trigram
+        index can be rebuilt without touching source files -- which is what makes an
+        upgrade that adds this table cheap.
+        """
+        if not self._cjk_index:
+            return
+        self.conn.execute("DELETE FROM fts_cjk")
+        self._write_fts_cjk(
+            list(
+                self.conn.execute(
+                    """SELECT s.id, s.name, s.qualified_name, s.doc, s.kind, s.signature, f.path
+                       FROM symbols s JOIN files f ON f.id = s.file_id"""
+                )
+            )
+        )
+
+    def _ensure_fts_cjk(self) -> None:
+        """Build the trigram index once per revision.
+
+        An index written before fts_cjk existed is otherwise healthy and aligned, so
+        `_heal_fts` never fires for it and the CJK tier would silently return nothing
+        until every file happened to change. Tied to FTS_CJK_REV rather than to
+        INDEX_VERSION on purpose: the version bump means "re-parse everything", and
+        this needs only the rows already on disk.
+        """
+        if not self._cjk_index or self.get_meta("fts_cjk_rev") == FTS_CJK_REV:
+            return
+        self._rebuild_fts_cjk()
+        self.set_meta("fts_cjk_rev", FTS_CJK_REV)
+
+    def has_cjk_index(self) -> bool:
+        """Whether `search` may query fts_cjk at all (False on old SQLite builds)."""
+        return self._cjk_index
+
+    def cjk_match(self, match: str, limit: int) -> list[tuple[int, float]]:
+        """(symbol id, bm25 score) for a trigram MATCH expression, best first.
+
+        [] when the table is unavailable, which reads the same as "no hits" -- so the
+        caller decides whether to fall back with `has_cjk_index()`, not by guessing
+        from an empty list.
+        """
+        if not self._cjk_index:
+            return []
+        try:
+            return [
+                (r[0], r[1])
+                for r in self.conn.execute(
+                    "SELECT rowid, bm25(fts_cjk, 4.0, 3.0, 1.0, 1.5) FROM fts_cjk "
+                    "WHERE fts_cjk MATCH ? ORDER BY 2 LIMIT ?",
+                    (match, limit),
+                )
+            ]
+        except Exception:
+            return []
 
     def _heal_fts(self) -> bool:
         """Rebuild FTS from symbols when rowid alignment is broken
@@ -564,6 +793,10 @@ class DB:
                 "VALUES (?,?,?,?,?,?,?)",
                 rows,
             )
+        # the trigram table is rebuilt in the same pass and the revision marked, so
+        # the _ensure_fts_cjk() that follows in startup does not scan symbols twice
+        self._rebuild_fts_cjk()
+        self.set_meta("fts_cjk_rev", FTS_CJK_REV)
         return True
 
     # ---------------- resolution ----------------

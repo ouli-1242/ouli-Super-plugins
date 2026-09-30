@@ -46,10 +46,15 @@ def test_ambiguous_tools_cross_reference_each_other():
     guessing (only the pairs it cannot tell apart from the name alone)."""
     try:
         docs = {t.name: t.description or "" for t in _tools()}
-        assert "find_callees" in docs["symbol_info"], "symbol_info must route callee queries to find_callees"
-        assert "impact_analysis" in docs["find_callers"], "find_callers must route change-impact to impact_analysis"
-        assert "find_callers" in docs["impact_analysis"], "impact_analysis must route plain caller lists to find_callers"
+        assert "call_graph" in docs["symbol_info"], "symbol_info must route callee queries to call_graph"
+        assert "impact_analysis" in docs["call_graph"], "call_graph must route change-impact to impact_analysis"
+        assert "call_graph" in docs["impact_analysis"], "impact_analysis must route plain caller lists to call_graph"
         assert "module_cycles" in docs["file_deps"], "file_deps must route project-wide cycles to module_cycles"
+        # the two pairs that used to be separate tools and are now one call: the
+        # description has to say which parameter picks the branch
+        assert "structure" in docs["read_code"], "read_code must document how to ask for a file's symbol list"
+        assert "direction" in docs["call_graph"] and "both" in docs["call_graph"]
+        assert "since" in docs["changes"] and "base" in docs["changes"],             "changes must name both time bases it routes between"
     finally:
         gc.collect()
         _rmtree(WORK)

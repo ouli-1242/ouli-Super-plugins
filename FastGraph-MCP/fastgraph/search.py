@@ -56,14 +56,20 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
     conditions = [name_expr]
     # CJK queries: FTS5's default unicode61 tokenizer treats a whole CJK run
     # as a single token, so `"学习"*` never matches a doc that merely contains
-    # the phrase. Fall back to substring LIKE on doc/signature for non-ASCII.
+    # the phrase. Substring LIKE on doc/signature is the fallback for what the
+    # trigram index cannot express: terms shorter than one trigram, and every
+    # query on an SQLite build without trigram support. Longer CJK goes through
+    # fts_cjk (tier 2b), where the terms AND instead of one of them deciding.
+    # Names are not affected either way: the name tier above is plain LIKE.
     if re.search("[一-鿿]", query):
-        cjk = next((t for t in tokens if re.search("[一-鿿]", t)), None)
-        if cjk:
+        short_cjk = [
+            t for t in tokens if not t.isascii() and (len(t) < 3 or not db.has_cjk_index())
+        ][:3]
+        for term in short_cjk:
             conditions.append("LOWER(s.doc) LIKE ?")
-            params.append(f"%{cjk}%")
+            params.append(f"%{term}%")
             conditions.append("LOWER(s.signature) LIKE ?")
-            params.append(f"%{cjk}%")
+            params.append(f"%{term}%")
     # kind is a *filter* on the name matches, not another OR'd clause
     # (was: OR'd into the name chain, so kind="function" returned every
     # function in the repo regardless of the query).
@@ -83,39 +89,49 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
     rows = db.conn.execute(sql, params + [win]).fetchall()
     rows.sort(key=lambda r: (path_rank(r[6]), r[6], r[5]))
 
-    # 2) FTS doc/signature search. fts_symbols is a regular (not contentless)
+    # 2) FTS doc/signature search, ranked. fts_symbols is a regular (not contentless)
     #    FTS5 table whose key column is `rowid` — kept equal to symbols.id so a
     #    MATCH hit resolves straight to its symbol. MATCH must reference the
     #    table, not a column (searching `id` raised and was swallowed, so doc/
     #    signature search silently never matched — A15).
+    #
+    #    Ordered by bm25() with per-column weights, best first (SQLite's bm25 is
+    #    negated). Before this the hits were sorted by path and line only, so "a doc
+    #    in the file that happened to index first" outranked "the doc that actually
+    #    repeats the term". `kind` gets a near-zero weight on purpose: it stores
+    #    "function"/"class", ordinary English words a query can contain by accident.
     fts_tokens = [t for t in tokens[:3] if len(t) >= 3]
     fts_query = " AND ".join(f'"{t}"*' for t in fts_tokens)
-    fts_ids: list[int] = []
-    try:
-        fts_ids = [
-            r[0]
-            for r in db.conn.execute(
-                "SELECT rowid FROM fts_symbols WHERE fts_symbols MATCH ?", (fts_query,)
-            )
-        ]
-    except Exception:
-        fts_ids = []
-    if fts_ids:
-        placeholders = ",".join("?" * len(fts_ids))
-        fts_sql = (
-            f"""SELECT s.id, s.name, s.kind, s.qualified_name, s.signature,
-                       s.start_line, f.path
-                FROM symbols s JOIN files f ON f.id = s.file_id
-                WHERE s.id IN ({placeholders})"""
-        )
-        fts_params: list = fts_ids
-        if kind:
-            fts_sql += " AND s.kind = ?"
-            fts_params = fts_ids + [kind]
-        fts_rows = db.conn.execute(fts_sql, fts_params).fetchall()
-        fts_rows.sort(key=lambda r: (path_rank(r[6]), r[6], r[5]))
-    else:
-        fts_rows = []
+    fts_scored: list[tuple[int, float]] = []
+    if fts_query:
+        try:
+            # the LIMIT also caps the IN (...) list below: an unbounded MATCH result on
+            # a common prefix used to build a many-thousand-parameter query
+            fts_scored = [
+                (r[0], r[1])
+                for r in db.conn.execute(
+                    "SELECT rowid, bm25(fts_symbols, 4.0, 3.0, 1.0, 0.1, 1.5, 1.0) "
+                    "FROM fts_symbols WHERE fts_symbols MATCH ? ORDER BY 2 LIMIT ?",
+                    (fts_query, win),
+                )
+            ]
+        except Exception:
+            fts_scored = []
+
+    # 2b) CJK prose. unicode61 never splits a CJK run, so tier 2 above structurally
+    #     cannot match one; fts_cjk indexes the same rows by trigram and additionally
+    #     covers name/qualified_name, which the LIKE fallback in tier 1 cannot reach.
+    #     A trigram needs >=3 characters, so shorter CJK queries ("限流" is 2) still
+    #     take LIKE -- as does every query on an SQLite build without trigram support.
+    cjk_tokens = [t for t in tokens[:3] if len(t) >= 3 and not t.isascii()]
+    cjk_scored = db.cjk_match(" AND ".join(f'"{t}"' for t in cjk_tokens), win) if cjk_tokens else []
+
+    taken: set[int] = set()
+    # concatenated, not merged by score: bm25 is relative to the corpus each table
+    # holds, and a CJK-index score is not comparable to an ASCII-index one. A query
+    # with terms in both languages is rare enough that "ASCII prose hits first" beats
+    # inventing a cross-table scale that means nothing.
+    fts_rows = _rows_for_ids(db, fts_scored, kind, taken) + _rows_for_ids(db, cjk_scored, kind, taken)
 
     seen: set[int] = set()
     # label the tier each hit came from: FTS hits are doc/signature matches, and
@@ -136,6 +152,35 @@ def code_search(db: DB, query: str, limit: int = 10, kind: str | None = None) ->
         # import hits are kind="import" and would violate any kind filter
         results.extend(_import_hits(db, query, limit - len(results)))
     return results
+
+
+def _rows_for_ids(
+    db: DB, scored: list[tuple[int, float]], kind: str | None, taken: set[int]
+) -> list[tuple]:
+    """Resolve (id, bm25 score) pairs into symbol rows, ordered by score.
+
+    `taken` is shared across the two FTS tables so a symbol that matches in both is
+    reported once, at its better rank. The score is carried rather than the position:
+    on a tie SQLite hands back rowid order, and two docs that say the same thing
+    should be separated by where they live, not by which file was scanned first.
+    """
+    fresh = [sid for sid, _ in scored if sid not in taken]
+    if not fresh:
+        return []
+    score = dict(scored)
+    placeholders = ",".join("?" * len(fresh))
+    sql = f"""SELECT s.id, s.name, s.kind, s.qualified_name, s.signature,
+                     s.start_line, f.path
+              FROM symbols s JOIN files f ON f.id = s.file_id
+              WHERE s.id IN ({placeholders})"""
+    params: list = list(fresh)
+    if kind:
+        sql += " AND s.kind = ?"
+        params.append(kind)
+    rows = list(db.conn.execute(sql, params))
+    rows.sort(key=lambda r: (score.get(r[0], 0.0), path_rank(r[6]), r[6], r[5]))
+    taken.update(r[0] for r in rows)
+    return rows
 
 
 def _content_hits(db: DB, query: str, limit: int) -> list[dict]:
@@ -159,13 +204,27 @@ def _content_hits(db: DB, query: str, limit: int) -> list[dict]:
         [f"%{t}%" for t in tokens] + [max(limit * 8, 80)],
     ).fetchall()
     rows.sort(key=lambda r: (path_rank(r[3]), r[3], r[0]))
-    return [
-        {
-            "symbol": "", "kind": r[1], "qualified_name": "", "signature": "",
-            "line": r[0], "file": r[3], "match": "content", "snippet": r[2][:80],
-        }
-        for r in rows[:limit]
-    ]
+    # dedup before truncating: an index written before the collector refused
+    # duplicates still stores one-line docstrings twice, and both copies would take a
+    # slot each out of a five-result answer. Re-indexing to fix that would mean a full
+    # re-parse of every repository on the map, which is a heavier price than a pass
+    # over the rows already in hand.
+    hits: list[dict] = []
+    seen: set[tuple] = set()
+    for r in rows:
+        key = (r[3], r[0], r[1], r[2])
+        if key in seen:
+            continue
+        seen.add(key)
+        hits.append(
+            {
+                "symbol": "", "kind": r[1], "qualified_name": "", "signature": "",
+                "line": r[0], "file": r[3], "match": "content", "snippet": r[2][:80],
+            }
+        )
+        if len(hits) >= limit:
+            break
+    return hits
 
 
 def _import_hits(db: DB, query: str, limit: int) -> list[dict]:

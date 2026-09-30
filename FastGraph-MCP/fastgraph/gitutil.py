@@ -157,6 +157,71 @@ def changed_files_vs(root: Path, base: str) -> dict:
     return changes
 
 
+def head_ref(root: Path) -> str:
+    """Full SHA of HEAD, '' outside a repo.
+
+    Recorded on a snapshot so `what_changed` can later diff the *files* against
+    the commit the snapshot was taken at, not just the graph.
+    """
+    base_dir = git_root(root)
+    if base_dir is None:
+        return ""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(base_dir), "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def renames(root: Path, base: str | None = None) -> dict[str, str]:
+    """old path -> new path for renames git detects between ``base`` and the tree.
+
+    ``changed_files_vs`` deliberately reports only the *new* path, because that
+    is the file the index holds. The memory layer needs the other side: without
+    old -> new, a note anchored to the file that moved reads as "the code it was
+    about is gone", which is the exact failure the layer exists to prevent.
+    ``-M`` matters: without rename detection git reports delete + add, and there
+    is nothing to link the old anchor to.
+    """
+    base_dir = git_root(root)
+    if base_dir is None:
+        return {}
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(base_dir), "-c", "core.quotepath=false",
+             "diff", "-M", "--name-status", base or "HEAD", "--"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
+        )
+    except Exception:
+        return {}
+    if out.returncode != 0:
+        return {}
+    found: dict[str, str] = {}
+    for line in out.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3 or not parts[0].upper().startswith(("R", "C")):
+            continue
+        old, new = parts[-2], parts[-1]
+        # No dot-path exclusion here, unlike changed_files: that one is about
+        # keeping `git status` noise out of a change report, while this is about
+        # explaining one move. `oxlint.json -> .oxlintrc.json` is precisely a move
+        # a note anchored on the old path needs to be told about.
+        if not old or not new:
+            continue
+        found[_rel_to_root(base_dir, old)] = _rel_to_root(base_dir, new)
+    return {k: v for k, v in found.items() if k and v}
+
+
+def _rel_to_root(base_dir: Path, path: str) -> str | None:
+    try:
+        return (base_dir / path).resolve().relative_to(base_dir.resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
+
+
 def changed_symbols(
     db,
     changes: dict[str, str],

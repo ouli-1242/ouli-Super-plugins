@@ -119,9 +119,16 @@ def _extract_content_lines(lang: str, text: str) -> list[tuple[int, str, str]]:
 
         return newlines_before
 
+    # A one-line `"""docstring"""` is emitted twice: once by the triple-quoted pass
+    # below and once by the single-line string-literal pass, and after quote-stripping
+    # the two rows are identical. They then both answer a content query and burn two
+    # slots of a five-result answer, so the same line is refused at the source.
+    seen: set[tuple[int, str, str]] = set()
+
     def add(ln: int, kind: str, content: str):
         c = content.strip().strip("\"'")
-        if c and len(c) <= 200:
+        if c and len(c) <= 200 and (ln, kind, c) not in seen:
+            seen.add((ln, kind, c))
             out.append((ln, kind, c))
 
     # block comments: emit every span line
@@ -260,6 +267,15 @@ class IndexStats:
     caller cannot tell "no symbols here" from "never looked"."""
 
 
+def _cfg_sig_text(cfg_sig: tuple) -> str:
+    """Meta-storeable text of the build-config fingerprint.
+
+    Sorted so the value does not depend on directory enumeration order, which is
+    not guaranteed to be the same in a second process.
+    """
+    return ",".join(f"{v:.6f}" for v in sorted(cfg_sig))
+
+
 class Indexer:
     def __init__(self, root: Path | str, db: DB, excludes: set[str] | None = None):
         self.root = Path(root).resolve()
@@ -314,7 +330,12 @@ class Indexer:
         return self._ignore
 
     def refresh(self) -> IndexStats:
-        with self._refresh_lock:
+        # A refresh writes (parse commits, the wholesale import_edges rebuild, the
+        # resolve pass), and on a second project window that write competes with
+        # another process's same write. The 5s query timeout is right for a hung
+        # read and wrong for a writer that is merely queueing behind a rebuild, so
+        # this connection waits like the startup DDL does.
+        with self._refresh_lock, self.db.patient_writes():
             return self._refresh()
 
     def _refresh(self) -> IndexStats:
@@ -411,11 +432,19 @@ class Indexer:
         self._cfg_sig = cfg_sig
         if cfg_changed:
             graph.clear_resolution_caches()
+        # Whether a wholesale rebuild is owed is a property of the *index*, not of
+        # this process: `cfg_changed` is true for every fresh process (`_cfg_sig`
+        # starts as None), and using it as the trigger made each new window re-derive
+        # everyone's import_edges. Two windows on one repo therefore both paid an
+        # O(all imports) write pass -- four of them deadlocked far enough to exceed
+        # the busy timeout and crash a tool call. Only a config the index was not
+        # built against owes a rebuild.
+        owed_cfg = (self.db.get_meta("build_cfg_sig") or "") != _cfg_sig_text(cfg_sig)
         # A wholesale import_edges rebuild runs at the end of this refresh (deleted
         # file, new file, or a build-config change), so the per-file edge pass in
         # _store_file would resolve every import a second time.
         self._edges_rebuilt_after = (
-            self._edges_rebuilt_after or bool(stats.deleted) or cfg_changed
+            self._edges_rebuilt_after or bool(stats.deleted) or owed_cfg
         )
         if self._edges_rebuilt_after:
             # durable, not per-process: a build killed between the batched commits
@@ -484,6 +513,9 @@ class Indexer:
         if self._edges_rebuilt_after and not stats.pending_files:
             self._rebuild_all_import_edges()
             self.db.set_meta("edges_rebuild_pending", "0")
+            # record *which* build config this index now reflects, so the next
+            # process that opens it finds nothing owed (see `owed_cfg`)
+            self.db.set_meta("build_cfg_sig", _cfg_sig_text(cfg_sig))
             self.db.commit()
 
         # Re-run resolution only when the symbol set can actually have changed

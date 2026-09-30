@@ -3,11 +3,13 @@
 The wholesale import_edges rebuild is skipped when nothing but file *contents*
 changed, so `_store_file` has to write that file's own edges. If it did not,
 `file_deps` would keep reporting the imports that were just edited away -- and a
-test that only ever does a first index would miss it, because a fresh Indexer
-always rebuilds once (its build-config fingerprint starts empty).
+test that only ever does a first index would miss it, because a first index has
+no edges to derive from until the files land.
 """
+import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -97,4 +99,40 @@ def test_owed_rebuild_survives_a_crash_inside_it():
     assert stats.parsed == 0, stats.parsed
     assert _targets(db, "src/alpha.py") == ["src/dee.py"]
     assert db.get_meta("edges_rebuild_pending") != "1"
+    db.close()
+
+
+def test_a_second_window_does_not_repay_the_rebuild():
+    """The rebuild is owed to the *index*, not to each process that opens it.
+
+    `Indexer._cfg_sig` is per-process and starts as None, so `cfg_changed` -- and
+    with it the wholesale import_edges rebuild -- was true for every fresh Indexer.
+    Two project windows on one repo therefore both re-derived every import edge on
+    their first call, and with four of them the write lock was held long enough that
+    one lost its 5s busy timeout and raised "database is locked" out of a read tool
+    (reproduced at 4 processes x 15 calls, failing in 1-2 of 10 runs).
+    """
+    repo = _build()
+    (repo / "tsconfig.json").write_text('{"compilerOptions":{}}', encoding="utf-8")
+    db = DB(repo)
+    real = Indexer._rebuild_all_import_edges
+    paid: list[int] = []
+
+    def spy(self):
+        paid.append(len(paid))
+        return real(self)
+
+    Indexer._rebuild_all_import_edges = spy
+    try:
+        Indexer(repo, db).refresh()
+        assert paid, "the first build has to derive the import edges"
+
+        Indexer(repo, db).refresh()          # same config, a different "window"
+        assert len(paid) == 1, "a fresh process re-derived every import edge"
+
+        os.utime(repo / "tsconfig.json", (time.time() + 30, time.time() + 30))
+        Indexer(repo, db).refresh()          # now the config really moved
+        assert len(paid) == 2, "a build-config change must still rebuild"
+    finally:
+        Indexer._rebuild_all_import_edges = real
     db.close()
